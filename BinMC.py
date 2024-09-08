@@ -33,7 +33,7 @@ camera_y = 90
 kit.servo[0].angle = 90 #X
 kit.servo[4].angle = 90 #Y
 
-model = YOLO("yolov8n.pt")
+# model = YOLO("yolov8n.pt")
 app = Flask(__name__)
 net = cv.dnn.readNet('yolov4-tiny.weights', 'yolov4-tiny.cfg')
 with open('coco.names', 'r') as f:
@@ -47,6 +47,7 @@ coms = {
     "Mode":0,
     "SPDL": 0.8,
     "SPDR": 0.8,
+    "Break" : True
 }
 led.value = 0
 led2.value = 0
@@ -200,16 +201,18 @@ def DriveMotor():
             led4.value = 0
         try:
             time.sleep(coms["Point"])
-            coms["SPDR"] = coms["SPDR"] - 0.1
-            coms["SPDL"] = coms["SPDL"] - 0.1
-            if coms["SPDL"] < 0:
-                coms["SPDL"] = 0
-                
-            if coms["SPDR"] < 0:
-                coms["SPDR"] = 0           
+            if coms['Break']:
+                coms["SPDR"] = coms["SPDR"] - 0.1
+                coms["SPDL"] = coms["SPDL"] - 0.1
+                if coms["SPDL"] < 0:
+                    coms["SPDL"] = 0
+                    
+                if coms["SPDR"] < 0:
+                    coms["SPDR"] = 0           
         except:
             continue
         
+ 
         
 # Yolo
 
@@ -218,10 +221,11 @@ def Yolo_tiny():
     timereset = 0
     lastcom = "D"
     modear = True
+    timepro = 0
     while True:
         if frame is None or coms["Mode"] == 1:
             continue
-    
+        timepro = time.time_ns()
         height, width = frame.shape[:2]
         blob = cv.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
         net.setInput(blob)
@@ -245,7 +249,6 @@ def Yolo_tiny():
                     class_ids.append(class_id)
 
         indices = cv.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
-        print(f"point {coms['Point']}")
         if len(indices) > 0:
             for i in indices.flatten():
                 x, y, w, h = boxes[i]
@@ -259,21 +262,23 @@ def Yolo_tiny():
                     if y < 100:
                         camera_y += 2
                         kit.servo[4].angle = int(camera_y)
-                    print(((((1280 * 720 - w*h)/(1280 * 720))*100) / 1000))
                     print(100-(((1280 * 720 - w*h)/(1280 * 720))*100))
-                    if  100-(((1280 * 720 - w*h)/(1280 * 720))*100) > 60:
+                    if  100-(((1280 * 720 - w*h)/(1280 * 720))*100) > 30:
                         print("person off")
+                        coms["Break"] = True
                         break
                     if ((x+(w//2)) > 400 and (x+(w//2)) < 880) and coms["Mode"] == 0:
                         print("person W")
                         coms["Goto"] = "W"
                         coms["Point"] = 0.1 + ((((1280 * 720 - w*h)/(1280 * 720))*100) / 1000)
-                        coms["SPDR"] = 1
-                        coms["SPDL"] = 1
+                        coms["SPDR"] = 0.8
+                        coms["SPDL"] = 0.8
+                        coms["Break"] = False
                     elif ((x+(w//2)) <= 400) and coms["Mode"] == 0:
                         print("person A")
                         coms["Goto"] = "A"
                         lastcom = "A"
+                        coms["Break"] = True
                         coms["Point"] = (0.1 + ((400 - (x+w))/10000))
                         coms["SPDL"] = 0.35
                         coms["SPDR"] = 0.35
@@ -281,6 +286,7 @@ def Yolo_tiny():
                         print("person D")
                         coms["Goto"] = "D"
                         lastcom = "D"
+                        coms["Break"] = True
                         coms["Point"] = 0.1 + (((x+w) - 400)/10000)
                         coms["SPDL"] = 0.35
                         coms["SPDR"] = 0.35
@@ -293,17 +299,22 @@ def Yolo_tiny():
             else:
                 camera_y += 1
                 kit.servo[4].angle = int(camera_y)
-        if timereset > 7:
+        if timereset > 10:
             # print(lastcom)
             coms["Goto"] = lastcom
+            coms["Break"] = True
             coms["Point"] = 0.15
             coms["SPDL"] = 0.5
             coms["SPDR"] = 0.5
             timereset = 0
             modear = True
         else:
-            if coms["SPDL"] == 0 and coms["SPDR"] == 0 or modear:
-                timereset += 1
+            timereset += 1
+        if timereset == 3 and not coms["Break"]:
+            timereset = 0
+            coms["Break"] = True
+        print(coms["Break"])
+        print(f"Time Prosess {(time.time_ns()-timepro)/1000000}")
 
 
 def Yolo():

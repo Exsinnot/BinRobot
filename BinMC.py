@@ -24,15 +24,15 @@ kit = ServoKit(channels=8)
 ip = ""
 ports = 8001
 CONNECTION = set()
-led = PWMLED(27) #เดินหน้า ซ้าย
-led2 = PWMLED(22) #ถอยหลัง ซ้าย
-led3 = PWMLED(4) #ถอยหลัง ขวา
-led4 = PWMLED(17) #เดินหน้า ขวา
+led = PWMLED(17) #เดินหน้า ซ้าย
+led2 = PWMLED(4) #ถอยหลัง ซ้าย
+led3 = PWMLED(27) #ถอยหลัง ขวา
+led4 = PWMLED(22) #เดินหน้า ขวา
 camera_x = 90
 camera_y = 90
 kit.servo[0].angle = 90 #X
 kit.servo[4].angle = 90 #Y
-
+modear = True
 # model = YOLO("yolov8n.pt")
 app = Flask(__name__)
 net = cv.dnn.readNet('yolov4-tiny.weights', 'yolov4-tiny.cfg')
@@ -43,6 +43,7 @@ cap = None
 frameweb = None
 coms = {
     "Goto":None,
+    "Last": None,
     "Point":None,
     "Mode":0,
     "SPDL": 0.8,
@@ -175,8 +176,10 @@ async def main():
 # Motor
 
 def DriveMotor():
-    global coms,led,led2,led3,led4
+    global coms,led,led2,led3,led4,modear
     while True:
+        if coms["Mode"] == 1:
+            continue
         # print(f"SPDL = {coms['SPDL']} , SPDR = {coms['SPDR']}")
         if coms["Goto"] == "W":
             #print("GO")
@@ -217,15 +220,15 @@ def DriveMotor():
 # Yolo
 
 def Yolo_tiny():
-    global frame,net,frameweb,coms,camera_y,kit,camera_x
+    global frame,net,frameweb,coms,camera_y,kit,camera_x,modear
     timereset = 0
     lastcom = "D"
-    modear = True
+    
     timepro = 0
     while True:
         if frame is None or coms["Mode"] == 1:
             continue
-        timepro = time.time_ns()
+        # timepro = time.time_ns()
         height, width = frame.shape[:2]
         blob = cv.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
         net.setInput(blob)
@@ -257,8 +260,11 @@ def Yolo_tiny():
                 color = (0, 255, 0)
                 cv.rectangle(frameweb, (x, y), (x + w, y + h), color, 2)
                 if label == "person":
+                    if modear:
+                        time.sleep(0.3)
+                        modear= False
+                        break
                     print(f"x = {x} w = {w} x+w = {x+w}")
-                    modear = False
                     if y < 100:
                         camera_y += 2
                         kit.servo[4].angle = int(camera_y)
@@ -269,6 +275,8 @@ def Yolo_tiny():
                         break
                     if ((x+(w//2)) > 400 and (x+(w//2)) < 880) and coms["Mode"] == 0:
                         print("person W")
+                        
+                        coms["Last"] = coms["Goto"]
                         coms["Goto"] = "W"
                         coms["Point"] = 0.1 + ((((1280 * 720 - w*h)/(1280 * 720))*100) / 1000)
                         coms["SPDR"] = 0.8
@@ -276,45 +284,58 @@ def Yolo_tiny():
                         coms["Break"] = False
                     elif ((x+(w//2)) <= 400) and coms["Mode"] == 0:
                         print("person A")
+                        coms["Last"] = coms["Goto"]
                         coms["Goto"] = "A"
                         lastcom = "A"
                         coms["Break"] = True
                         coms["Point"] = (0.1 + ((400 - (x+w))/10000))
-                        coms["SPDL"] = 0.35
-                        coms["SPDR"] = 0.35
+                        coms["SPDL"] = 0.3
+                        coms["SPDR"] = 0.3
                     elif ((x+(w//2)) > 880) and coms["Mode"] == 0:
                         print("person D")
+                        coms["Last"] = coms["Goto"]
                         coms["Goto"] = "D"
                         lastcom = "D"
                         coms["Break"] = True
                         coms["Point"] = 0.1 + (((x+w) - 400)/10000)
-                        coms["SPDL"] = 0.35
-                        coms["SPDR"] = 0.35
+                        coms["SPDL"] = 0.3
+                        coms["SPDR"] = 0.3
                     timereset = 0
                     break
-        while not camera_y == 95:
-            if camera_y > 95:
-                camera_y -= 1
-                kit.servo[4].angle = int(camera_y)
-            else:
-                camera_y += 1
-                kit.servo[4].angle = int(camera_y)
+        
         if timereset > 10:
             # print(lastcom)
+            while not camera_y == 95:
+                if camera_y > 95:
+                    camera_y -= 1
+                    kit.servo[4].angle = int(camera_y)
+                else:
+                    camera_y += 1
+                    kit.servo[4].angle = int(camera_y)
+            coms["Last"] = coms["Goto"]
             coms["Goto"] = lastcom
             coms["Break"] = True
             coms["Point"] = 0.15
-            coms["SPDL"] = 0.5
-            coms["SPDR"] = 0.5
+            coms["SPDL"] = 0.4
+            coms["SPDR"] = 0.4
             timereset = 0
             modear = True
         else:
             timereset += 1
-        if timereset == 3 and not coms["Break"]:
+        if timereset == 4 and not coms["Break"] and not modear:
             timereset = 0
             coms["Break"] = True
-        print(coms["Break"])
-        print(f"Time Prosess {(time.time_ns()-timepro)/1000000}")
+        if timereset == 3 and modear:
+            coms["Last"] = coms["Goto"]
+            coms["Goto"] = lastcom
+            coms["Break"] = True
+            coms["Point"] = 0.15
+            coms["SPDL"] = 0.4
+            coms["SPDR"] = 0.4
+            timereset = 0
+            modear = True
+        # print(coms["Break"])
+        # print(f"Time Prosess {(time.time_ns()-timepro)/1000000}")
 
 
 def Yolo():

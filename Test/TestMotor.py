@@ -1,4 +1,4 @@
-from gpiozero import LED,PWMLED
+    ,PWMLED
 
 led = PWMLED(27) # br
 led2 = PWMLED(22) #fr
@@ -8,5 +8,5 @@ led4 = PWMLED(17) #fl
 while True:
     led.value = 0
     led2.value = 0
-    led3.value = 1
+    led3.value = 0
     led4.value = 0

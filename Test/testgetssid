@@ -1,0 +1,15 @@
+import subprocess
+
+def get_ssid_linux():
+    try:
+        # Run the command to get SSID
+        result = subprocess.check_output(["nmcli", "-t", "-f", "active,ssid", "dev", "wifi"], encoding='utf-8')
+        # Filter the result to get the active SSID
+        for line in result.splitlines():
+            if line.startswith("yes:"):
+                return line.split(":")[1]
+        return "No active Wi-Fi connection found."
+    except subprocess.CalledProcessError as e:
+        return f"Error: {e}"
+
+print(get_ssid_linux())

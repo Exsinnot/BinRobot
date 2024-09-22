@@ -1,11 +1,13 @@
 import threading
 import time
 import cv2 as cv
+import json
 import os
+from flask_cors import CORS
 from flask import Flask, request, jsonify ,Response
 from flask_socketio import SocketIO, emit
 import asyncio
-from gpiozero import LED,PWMLED
+from gpiozero import LED,PWMLED,DistanceSensor
 from ultralytics import YOLO
 import json
 import websockets
@@ -14,12 +16,23 @@ import subprocess
 import math
 from adafruit_servokit import ServoKit
 import random
+import board
+from adafruit_ina219 import ADCResolution, BusVoltageRange, INA219
+i2c_bus = board.I2C()
 kit = ServoKit(channels=8)
+ina219 = INA219(i2c_bus,0x41)
+ina219.bus_adc_resolution = ADCResolution.ADCRES_12BIT_32S
+ina219.shunt_adc_resolution = ADCResolution.ADCRES_12BIT_32S
+ina219.bus_voltage_range = BusVoltageRange.RANGE_16V
+
 # subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'], check=True)
 
 # subprocess.run(['sudo', 'iptables', '-t', 'nat', '-I', 'PREROUTING', '-d', 'BinMa.cpe.com', '-p', 'tcp', '--dport', '80', '-j', 'DNAT', '--to-destination', '192.168.4.1:80'], check=True)
 
 # subprocess.run(['sudo', 'sh', '-c', 'iptables-save > /etc/iptables.ipv4.nat'], check=True)
+
+sensor = DistanceSensor(echo=6, trigger=5,max_distance=8)
+# sensor2 = DistanceSensor(echo=16, trigger=26,max_distance=8)
 
 ip = ""
 ports = 8001
@@ -35,6 +48,7 @@ kit.servo[4].angle = 90 #Y
 modear = True
 # model = YOLO("yolov8n.pt")
 app = Flask(__name__)
+CORS(app)
 net = cv.dnn.readNet('yolov4-tiny.weights', 'yolov4-tiny.cfg')
 with open('coco.names', 'r') as f:
     classes = f.read().strip().split('\n')
@@ -176,8 +190,17 @@ async def main():
 # Motor
 
 def DriveMotor():
-    global coms,led,led2,led3,led4,modear
+    global coms,led,led2,led3,led4,modear,sensor,sensor2
     while True:
+        dis = sensor.distance * 100 
+        # dis2 = sensor2.distance * 100 
+        dis2 = 100
+        print(f"dis1 = {dis} dis2 = {dis2}")
+        if (dis < 30 or dis2 < 70) and coms["Goto"] == "W":
+            coms["SPDL"] = 0
+            coms["SPDR"] = 0
+        elif (dis < 50) and coms["Goto"] == "W":
+            coms["Break"] = True
         if coms["Mode"] == 1:
             continue
         # print(f"SPDL = {coms['SPDL']} , SPDR = {coms['SPDR']}")
@@ -269,7 +292,7 @@ def Yolo_tiny():
                         camera_y += 2
                         kit.servo[4].angle = int(camera_y)
                     print(100-(((1280 * 720 - w*h)/(1280 * 720))*100))
-                    if  100-(((1280 * 720 - w*h)/(1280 * 720))*100) > 30:
+                    if  100-(((1280 * 720 - w*h)/(1280 * 720))*100) > 50:
                         print("person off")
                         coms["Break"] = True
                         break
@@ -431,6 +454,41 @@ def generate_frames():
 @app.route('/camera')
 def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+def get_ssid_linux():
+    try:
+        # Run the command to get SSID
+        result = subprocess.check_output(["nmcli", "-t", "-f", "active,ssid", "dev", "wifi"], encoding='utf-8')
+        # Filter the result to get the active SSID
+        for line in result.splitlines():
+            if line.startswith("yes:"):
+                return line.split(":")[1]
+        return "No active Wi-Fi connection found."
+    except subprocess.CalledProcessError as e:
+        return f"Error: {e}"
+    
+@app.route('/getdatadb', methods=['GET'])
+def senddataDashboard():
+    global ina219
+    data = {
+        "Battery" : 0,
+        "Trash": 0,
+        "Batloss": 0,
+        "SSID":"",
+        "Status":"",
+    }
+    bus_voltage = ina219.bus_voltage  
+    shunt_voltage = ina219.shunt_voltage 
+    current = ina219.current  
+    power = ina219.power  
+    battery = (bus_voltage - 11.1) / 0.015
+    print(bus_voltage)
+    print(current)
+    data["Battery"] = battery
+    data["Trash"] = 100
+    data["SSID"] = get_ssid_linux()
+    data["Status"] = "Stay"
+    data["Batloss"] = 0
+    return jsonify(data)
 
 
 

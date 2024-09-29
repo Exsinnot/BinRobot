@@ -2,13 +2,13 @@
 # SPDX-License-Identifier: MIT
 
 """Sample code and test for adafruit_ina219"""
-
+import busio
 import time
 import board
 from adafruit_ina219 import ADCResolution, BusVoltageRange, INA219
 
-
-i2c_bus = board.I2C()  # uses board.SCL and board.SDA
+i2c_bus = busio.I2C(1, 0)
+# i2c_bus = board.I2C()  # uses board.SCL and board.SDA
 # i2c_bus = board.STEMMA_I2C()  # For using the built-in STEMMA QT connector on a microcontroller
 
 ina219 = INA219(i2c_bus,0x41)

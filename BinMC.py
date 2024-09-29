@@ -18,8 +18,12 @@ from adafruit_servokit import ServoKit
 import random
 import board
 from adafruit_ina219 import ADCResolution, BusVoltageRange, INA219
-i2c_bus = board.I2C()
-kit = ServoKit(channels=8)
+import busio
+import adafruit_vl53l0x
+from digitalio import DigitalInOut
+from adafruit_vl53l0x import VL53L0X
+i2c_bus = busio.I2C(1, 0)
+kit = ServoKit(i2c=i2c_bus,channels=8)
 ina219 = INA219(i2c_bus,0x41)
 ina219.bus_adc_resolution = ADCResolution.ADCRES_12BIT_32S
 ina219.shunt_adc_resolution = ADCResolution.ADCRES_12BIT_32S
@@ -31,14 +35,44 @@ ina219.bus_voltage_range = BusVoltageRange.RANGE_16V
 
 # subprocess.run(['sudo', 'sh', '-c', 'iptables-save > /etc/iptables.ipv4.nat'], check=True)
 
-sensor = DistanceSensor(echo=6, trigger=5,max_distance=8)
+# sensor = DistanceSensor(echo=6, trigger=5,max_distance=8)
 # sensor2 = DistanceSensor(echo=16, trigger=26,max_distance=8)
+xshut = [
+    DigitalInOut(board.D20), 
+    DigitalInOut(board.D21) 
+]
+for power_pin in xshut:
+    power_pin.switch_to_output(value=True)
+
+vl53 = []
+xshut[0].value = True 
+xshut[1].value = False
+xshut[0].value = True 
+time.sleep(0.1)       
+vl53.append(VL53L0X(i2c_bus)) 
+vl53[0].set_address(0x2B)  
+xshut[0].value = False
+xshut[1].value = True 
+time.sleep(0.1)       
+vl53.append(VL53L0X(i2c_bus)) 
+vl53[1].set_address(0x2A) 
+
+
+xshut[0].value = True 
+xshut[1].value = True  
+
+
+vl53_1 = adafruit_vl53l0x.VL53L0X(i2c=i2c_bus,address=0x29)
+vl53_2 = adafruit_vl53l0x.VL53L0X(i2c=i2c_bus,address=0x2a)
+
+vl53_1.measurement_timing_budget = 100000
+vl53_2.measurement_timing_budget = 100000
 
 ip = ""
 ports = 8001
 CONNECTION = set()
-led = PWMLED(17) #เดินหน้า ซ้าย
-led2 = PWMLED(4) #ถอยหลัง ซ้าย
+led = PWMLED(4) #เดินหน้า ซ้าย
+led2 = PWMLED(17) #ถอยหลัง ซ้าย
 led3 = PWMLED(27) #ถอยหลัง ขวา
 led4 = PWMLED(22) #เดินหน้า ขวา
 camera_x = 90
@@ -186,24 +220,60 @@ async def main():
 # Servo
 
 
+# Sensor ระยะทาง
+
+def Sensor_VL53L0X():
+    global i2c_bus,coms,vl53_2,vl53_1
+    print("ERROR VL53")
+    xshut = [
+        DigitalInOut(board.D20), 
+        DigitalInOut(board.D21) 
+    ]
+    for power_pin in xshut:
+        power_pin.switch_to_output(value=True)
+
+    vl53 = []
+    xshut[0].value = True 
+    xshut[1].value = False
+    xshut[0].value = True 
+    time.sleep(0.1)       
+    vl53.append(VL53L0X(i2c_bus)) 
+    vl53[0].set_address(0x2B)  
+    xshut[0].value = False
+    xshut[1].value = True 
+    time.sleep(0.1)       
+    vl53.append(VL53L0X(i2c_bus)) 
+    vl53[1].set_address(0x2A) 
+
+
+    xshut[0].value = True 
+    xshut[1].value = True  
+
+
+    vl53_1 = adafruit_vl53l0x.VL53L0X(i2c=i2c_bus,address=0x29)
+    vl53_2 = adafruit_vl53l0x.VL53L0X(i2c=i2c_bus,address=0x2a)
+
+    vl53_1.measurement_timing_budget = 100000
+    vl53_2.measurement_timing_budget = 100000
+
+
+# หามุมเลี้ยวหลบ
+
 
 # Motor
 
 def DriveMotor():
-    global coms,led,led2,led3,led4,modear,sensor,sensor2
+    global coms,led,led2,led3,led4,modear,vl53_1,vl53_2
     while True:
-        dis = sensor.distance * 100 
-        # dis2 = sensor2.distance * 100 
-        dis2 = 100
-        print(f"dis1 = {dis} dis2 = {dis2}")
-        if (dis < 30 or dis2 < 70) and coms["Goto"] == "W":
-            coms["SPDL"] = 0
-            coms["SPDR"] = 0
-        elif (dis < 50) and coms["Goto"] == "W":
-            coms["Break"] = True
         if coms["Mode"] == 1:
             continue
         # print(f"SPDL = {coms['SPDL']} , SPDR = {coms['SPDR']}")
+        if vl53_2.range/10 < 120 or vl53_1.range/10 < 50:
+            led.value = 0
+            led2.value = 0
+            led3.value = 0
+            led4.value = 0
+            
         if coms["Goto"] == "W":
             #print("GO")
             led.value = coms["SPDL"]
@@ -243,7 +313,7 @@ def DriveMotor():
 # Yolo
 
 def Yolo_tiny():
-    global frame,net,frameweb,coms,camera_y,kit,camera_x,modear
+    global frame,net,frameweb,coms,camera_y,kit,camera_x,modear,vl53_1,vl53_2
     timereset = 0
     lastcom = "D"
     
@@ -484,7 +554,7 @@ def senddataDashboard():
     print(bus_voltage)
     print(current)
     data["Battery"] = battery
-    data["Trash"] = 100
+    data["Trash"] = random.randint(0,100)
     data["SSID"] = get_ssid_linux()
     data["Status"] = "Stay"
     data["Batloss"] = 0

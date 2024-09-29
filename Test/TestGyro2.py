@@ -1,7 +1,7 @@
 import time
 from mpu6050 import mpu6050
 
-sensor = mpu6050(0x68)
+sensor = mpu6050(0x68,bus=0)
 
 # การสอบเทียบ Gyroscope
 num_calibration_samples = 100

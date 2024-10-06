@@ -1,6 +1,6 @@
 from gpiozero import DistanceSensor
 import time
-sensor = DistanceSensor(echo=9, trigger=11,max_distance=8)
+sensor = DistanceSensor(echo=11, trigger=9,max_distance=8)
 # sensor2 = DistanceSensor(echo=16, trigger=26,max_distance=8)
 
 try:

@@ -30,13 +30,19 @@ GPIO.output(21,1)
 vl53 = VL53L0X(i2c=i2c,address=41)
 vl532 = VL53L0X(i2c=i2c,address=0x2a)
 
-vl53.measurement_timing_budget = 100000
-vl532.measurement_timing_budget = 100000
+vl53.measurement_timing_budget = 50000
+vl532.measurement_timing_budget = 50000
+vl53.signal_rate_limit = 0.1
+vl532.signal_rate_limit = 0.1
+
 
 while True:
     try:
-        print("Range1: {0}cm".format(vl53.range/10))
-        print("Range2: {0}cm".format(vl532.range/10))
-        time.sleep(1.0)
-    except:
-        print("EEROR") 
+        distance1 = vl53.range
+        distance2 = vl532.range
+
+        print("Range1: {0}cm".format(distance1/10))
+        print("Range2: {0}cm".format(distance2/10))
+        time.sleep(0.1)
+    except KeyboardInterrupt:
+        break

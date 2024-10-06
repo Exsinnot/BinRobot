@@ -8,16 +8,19 @@ camera_x = 0
 camera_y = 0
 temp = 0
 kit.servo[0].angle = 90
+kit.servo[4].angle = 0
 while True:
     com = input()
     if com == "off":
-        for i in range(90,0,-1):
-            kit.servo[4].angle = i
-            time.sleep(0.01)
+        kit.servo[4].angle = 0
+        # for i in range(180,0,-5):
+        #     kit.servo[0].angle = i
+        #     time.sleep(0.1)
     elif com == "on":
-        for i in range(0,90):
-            kit.servo[4].angle = i
-            time.sleep(0.01)
+        kit.servo[4].angle = 90
+        # for i in range(0,180,5):
+        #     kit.servo[0].angle = i
+        #     time.sleep(0.1)
 
 # while True:
 #     com = input()

@@ -10,6 +10,7 @@ import asyncio
 from gpiozero import LED,PWMLED,DistanceSensor
 from ultralytics import YOLO
 import json
+import speech_recognition as sr
 import websockets
 import numpy as np
 import subprocess
@@ -22,12 +23,70 @@ import busio
 import adafruit_vl53l0x
 from digitalio import DigitalInOut
 from adafruit_vl53l0x import VL53L0X
+import pygame
+import mediapipe as mp
+from pydub import AudioSegment
+from io import BytesIO
+import RPi.GPIO as GPIO
+import time
+import board
+import busio
+from digitalio import DigitalInOut
+from adafruit_vl53l0x import VL53L0X
+from mpu6050 import mpu6050
+import threading
+import cv2
+import mediapipe as mp
+import time
+from pydub import AudioSegment
+from io import BytesIO
+import pygame
+import random
+import cv2
+import mediapipe as mp
+import time
+from pydub import AudioSegment
+from io import BytesIO
+import pygame
+
+import random
+sensor = mpu6050(0x68,bus=0)
 i2c_bus = busio.I2C(1, 0)
+pin_br = 27  
+pin_fr = 22  
+pin_bl = 17  
+pin_fl = 4   
+modestop = False
+GPIO.setup(20, GPIO.OUT)
+GPIO.setup(21, GPIO.OUT)
+GPIO.output(20,0)
+GPIO.output(21,0)
+
+GPIO.output(20,1)
+time.sleep(0.1)       
+VL53L0X(i2c_bus,address=41).set_address(0x2A)
+time.sleep(0.1)       
+GPIO.output(21,1)
+VL53L0X(i2c_bus,address=41).set_address(0x2B)
+GPIO.output(20,1)
+GPIO.output(21,1)
+
+vl53 = VL53L0X(i2c=i2c_bus,address=0x2A)
+vl532 = VL53L0X(i2c=i2c_bus,address=0x2B)
+
+vl53.measurement_timing_budget = 50000
+vl532.measurement_timing_budget = 50000
+vl53.signal_rate_limit = 0.1
+vl532.signal_rate_limit = 0.1
+
 kit = ServoKit(i2c=i2c_bus,channels=8)
 ina219 = INA219(i2c_bus,0x41)
 ina219.bus_adc_resolution = ADCResolution.ADCRES_12BIT_32S
 ina219.shunt_adc_resolution = ADCResolution.ADCRES_12BIT_32S
 ina219.bus_voltage_range = BusVoltageRange.RANGE_16V
+mp_pose = mp.solutions.pose
+pose = mp_pose.Pose()
+
 
 # subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'], check=True)
 
@@ -37,50 +96,33 @@ ina219.bus_voltage_range = BusVoltageRange.RANGE_16V
 
 # sensor = DistanceSensor(echo=6, trigger=5,max_distance=8)
 # sensor2 = DistanceSensor(echo=16, trigger=26,max_distance=8)
-xshut = [
-    DigitalInOut(board.D20), 
-    DigitalInOut(board.D21) 
-]
-for power_pin in xshut:
-    power_pin.switch_to_output(value=True)
-
-vl53 = []
-xshut[0].value = True 
-xshut[1].value = False
-xshut[0].value = True 
-time.sleep(0.1)       
-vl53.append(VL53L0X(i2c_bus)) 
-vl53[0].set_address(0x2B)  
-xshut[0].value = False
-xshut[1].value = True 
-time.sleep(0.1)       
-vl53.append(VL53L0X(i2c_bus)) 
-vl53[1].set_address(0x2A) 
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(pin_br, GPIO.OUT)
+GPIO.setup(pin_fr, GPIO.OUT)
+GPIO.setup(pin_bl, GPIO.OUT)
+GPIO.setup(pin_fl, GPIO.OUT)
 
 
-xshut[0].value = True 
-xshut[1].value = True  
+pwm_br = GPIO.PWM(pin_br, 100)  
+pwm_fr = GPIO.PWM(pin_fr, 100)
+pwm_bl = GPIO.PWM(pin_bl, 100)
+pwm_fl = GPIO.PWM(pin_fl, 100)
 
-
-vl53_1 = adafruit_vl53l0x.VL53L0X(i2c=i2c_bus,address=0x29)
-vl53_2 = adafruit_vl53l0x.VL53L0X(i2c=i2c_bus,address=0x2a)
-
-vl53_1.measurement_timing_budget = 100000
-vl53_2.measurement_timing_budget = 100000
+pwm_br.start(0)
+pwm_fr.start(0)
+pwm_bl.start(0)
+pwm_fl.start(0)
 
 ip = ""
 ports = 8001
 CONNECTION = set()
-led = PWMLED(4) #เดินหน้า ซ้าย
-led2 = PWMLED(17) #ถอยหลัง ซ้าย
-led3 = PWMLED(27) #ถอยหลัง ขวา
-led4 = PWMLED(22) #เดินหน้า ขวา
 camera_x = 90
-camera_y = 90
-kit.servo[0].angle = 90 #X
-kit.servo[4].angle = 90 #Y
+camera_y = 120
+kit.servo[0].angle = 120 #X
+kit.servo[4].angle = 0 #Y
 modear = True
 # model = YOLO("yolov8n.pt")
+
 app = Flask(__name__)
 CORS(app)
 net = cv.dnn.readNet('yolov4-tiny.weights', 'yolov4-tiny.cfg')
@@ -98,14 +140,56 @@ coms = {
     "SPDR": 0.8,
     "Break" : True
 }
-led.value = 0
-led2.value = 0
-led3.value = 0
-led4.value = 0
+
+timereset = True
+def W(Speed):
+    pwm_br.ChangeDutyCycle(0)              
+    pwm_fr.ChangeDutyCycle(Speed+1)      
+    pwm_bl.ChangeDutyCycle(0)              
+    pwm_fl.ChangeDutyCycle(Speed)   
+def S(Speed):
+    pwm_br.ChangeDutyCycle(Speed)    
+    pwm_fr.ChangeDutyCycle(0)   
+    pwm_bl.ChangeDutyCycle(Speed)   
+    pwm_fl.ChangeDutyCycle(0)  
+def A(Speed,Degee = None):
+    pwm_br.ChangeDutyCycle(0)    
+    pwm_fr.ChangeDutyCycle(Speed)   
+    pwm_bl.ChangeDutyCycle(Speed)   
+    pwm_fl.ChangeDutyCycle(0)  
+def D(Speed,Degee = None):
+    pwm_br.ChangeDutyCycle(Speed)    
+    pwm_fr.ChangeDutyCycle(0)   
+    pwm_bl.ChangeDutyCycle(0)   
+    pwm_fl.ChangeDutyCycle(Speed)  
+def Stop():
+    pwm_br.ChangeDutyCycle(0)    
+    pwm_fr.ChangeDutyCycle(0)   
+    pwm_bl.ChangeDutyCycle(0)   
+    pwm_fl.ChangeDutyCycle(0)  
+
+yaw = 0
+prev_time = time.time()
+num_calibration_samples = 200
+gyro_bias = {'x': 0, 'y': 0, 'z': 0}
+print("Calibrating gyroscope...")
+
+for i in range(num_calibration_samples):
+    gyro_data = sensor.get_gyro_data()
+    gyro_bias['x'] += gyro_data['x']
+    gyro_bias['y'] += gyro_data['y']
+    gyro_bias['z'] += gyro_data['z']
+    time.sleep(0.01)
+
+gyro_bias['x'] /= num_calibration_samples
+gyro_bias['y'] /= num_calibration_samples
+gyro_bias['z'] /= num_calibration_samples
+
+print("Calibration complete.")
 
 # websocket
 async def handler(websocket):
-    global coms,led,led2,led3,led4,camera_y,camera_x
+    global coms,camera_y,camera_x
     CONNECTION.add(websocket)
     if len(CONNECTION) <= 1:
         print("Server >>> client connected.")
@@ -127,60 +211,48 @@ async def handler(websocket):
                     camera_y += 0.5
                     if camera_y > 180:
                         camera_y = 180
-                    kit.servo[4].angle = int(camera_y)
+                    kit.servo[0].angle = int(camera_y)
                 elif data["status"] == "down":
                     camera_y -= 0.5
                     if camera_y < 0:
                         camera_y = 0
-                    kit.servo[4].angle = int(camera_y)
+                    kit.servo[0].angle = int(camera_y)
                 elif data["status"] == "left":
                     camera_x += 0.5
                     if camera_x > 180:
                         camera_x = 180
-                    kit.servo[0].angle = int(camera_x)
+                    kit.servo[4].angle = int(camera_x)
                 elif data["status"] == "right":
                     camera_x -= 0.5
                     if camera_x < 0:
                         camera_x = 0
-                    kit.servo[0].angle = int(camera_x)
+                    kit.servo[4].angle = int(camera_x)
                 elif data["status"] == "reset":
-                    camera_x = 90
                     camera_y = 90
-                    kit.servo[4].angle = int(camera_y)
-                    kit.servo[0].angle = int(camera_x)
+                    kit.servo[0].angle = int(camera_y)
+                    pygame.mixer.init()
+
+                    pygame.mixer.music.load("sound/testsound.mp3")
+
+                    pygame.mixer.music.play()
+
+                    while pygame.mixer.music.get_busy():
+                        continue
                 elif data["status"] == "w":
                     #print("w")
-                    coms["Point"] = 0.1
-                    led.value = coms["SPDL"]
-                    led2.value = 0
-                    led3.value = 0
-                    led4.value = coms["SPDR"]
+                    W(50)
                 elif data["status"] == "s":
                     #print("s")
-                    coms["Point"] = 0.1
-                    led.value = 0
-                    led2.value = coms["SPDL"]
-                    led3.value = coms["SPDR"]
-                    led4.value = 0
+                    S(50)
                 elif data["status"] == "a":
                     #print("a")
-                    coms["Point"] = 0.1
-                    led.value = 0
-                    led2.value = coms["SPDL"]/2
-                    led3.value = 0
-                    led4.value = coms["SPDR"]/2
+                    A(30)
                 elif data["status"] == "d":
                     #print("d")
-                    coms["Point"] = 0.1
-                    led.value = coms["SPDL"]/2
-                    led2.value = 0
-                    led3.value = coms["SPDR"]/2
-                    led4.value = 0
+                    D(30)
                 elif data["status"] == "off":
-                    led.value = 0
-                    led2.value = 0
-                    led3.value = 0
-                    led4.value = 0
+                    Stop()
+                        
             await websocket.wait_closed()
         except websockets.exceptions.ConnectionClosedError as e:
             print(f"Server >>> Connection closed with error: {e}")
@@ -223,220 +295,539 @@ async def main():
 # Sensor ระยะทาง
 
 def Sensor_VL53L0X():
-    global i2c_bus,coms,vl53_2,vl53_1
-    print("ERROR VL53")
-    xshut = [
-        DigitalInOut(board.D20), 
-        DigitalInOut(board.D21) 
-    ]
-    for power_pin in xshut:
-        power_pin.switch_to_output(value=True)
+    global i2c_bus
+    GPIO.output(20,0)
+    GPIO.output(21,0)
 
-    vl53 = []
-    xshut[0].value = True 
-    xshut[1].value = False
-    xshut[0].value = True 
+    GPIO.output(20,1)
     time.sleep(0.1)       
-    vl53.append(VL53L0X(i2c_bus)) 
-    vl53[0].set_address(0x2B)  
-    xshut[0].value = False
-    xshut[1].value = True 
+    VL53L0X(i2c_bus,address=41).set_address(0x2A)
     time.sleep(0.1)       
-    vl53.append(VL53L0X(i2c_bus)) 
-    vl53[1].set_address(0x2A) 
+    GPIO.output(21,1)
+    VL53L0X(i2c_bus,address=41).set_address(0x2B)
+    GPIO.output(20,1)
+    GPIO.output(21,1)
 
+    vl53 = VL53L0X(i2c=i2c_bus,address=0x2A)
+    vl532 = VL53L0X(i2c=i2c_bus,address=0x2B)
 
-    xshut[0].value = True 
-    xshut[1].value = True  
-
-
-    vl53_1 = adafruit_vl53l0x.VL53L0X(i2c=i2c_bus,address=0x29)
-    vl53_2 = adafruit_vl53l0x.VL53L0X(i2c=i2c_bus,address=0x2a)
-
-    vl53_1.measurement_timing_budget = 100000
-    vl53_2.measurement_timing_budget = 100000
-
+    vl53.measurement_timing_budget = 50000
+    vl532.measurement_timing_budget = 50000
+    vl53.signal_rate_limit = 0.1
+    vl532.signal_rate_limit = 0.1
 
 # หามุมเลี้ยวหลบ
 
 
 # Motor
 
-def DriveMotor():
-    global coms,led,led2,led3,led4,modear,vl53_1,vl53_2
-    while True:
-        if coms["Mode"] == 1:
-            continue
-        # print(f"SPDL = {coms['SPDL']} , SPDR = {coms['SPDR']}")
-        if vl53_2.range/10 < 120 or vl53_1.range/10 < 50:
-            led.value = 0
-            led2.value = 0
-            led3.value = 0
-            led4.value = 0
+# def DriveMotor():
+#     global coms,led,led2,led3,led4,modear,vl53_1,vl53_2
+#     while True:
+#         if coms["Mode"] == 1:
+#             time.sleep(1)
+#             continue
+#         # print(f"SPDL = {coms['SPDL']} , SPDR = {coms['SPDR']}")
+#         if vl53_2.range/10 < 120 or vl53_1.range/10 < 50:
+#             led.value = 0
+#             led2.value = 0
+#             led3.value = 0
+#             led4.value = 0
             
-        if coms["Goto"] == "W":
-            #print("GO")
-            led.value = coms["SPDL"]
-            led2.value = 0
-            led3.value = 0
-            led4.value = coms["SPDR"]
-        elif coms["Goto"] == "D":
-            led.value = coms["SPDL"]
-            led2.value = 0
-            led3.value = coms["SPDR"]
-            led4.value = 0
-        elif coms["Goto"] == "A":
-            led.value = 0
-            led2.value = coms["SPDL"]
-            led3.value = 0
-            led4.value = coms["SPDR"]
-        elif coms["Goto"] == "S":
-            led.value = 0
-            led2.value = 0
-            led3.value = 0
-            led4.value = 0
-        try:
-            time.sleep(coms["Point"])
-            if coms['Break']:
-                coms["SPDR"] = coms["SPDR"] - 0.1
-                coms["SPDL"] = coms["SPDL"] - 0.1
-                if coms["SPDL"] < 0:
-                    coms["SPDL"] = 0
+#         if coms["Goto"] == "W":
+#             #print("GO")
+#             led.value = coms["SPDL"]
+#             led2.value = 0
+#             led3.value = 0
+#             led4.value = coms["SPDR"]
+#         elif coms["Goto"] == "D":
+#             led.value = coms["SPDL"]
+#             led2.value = 0
+#             led3.value = coms["SPDR"]
+#             led4.value = 0
+#         elif coms["Goto"] == "A":
+#             led.value = 0
+#             led2.value = coms["SPDL"]
+#             led3.value = 0
+#             led4.value = coms["SPDR"]
+#         elif coms["Goto"] == "S":
+#             led.value = 0
+#             led2.value = 0
+#             led3.value = 0
+#             led4.value = 0
+#         try:
+#             time.sleep(coms["Point"])
+#             if coms['Break']:
+#                 coms["SPDR"] = coms["SPDR"] - 0.1
+#                 coms["SPDL"] = coms["SPDL"] - 0.1
+#                 if coms["SPDL"] < 0:
+#                     coms["SPDL"] = 0
                     
-                if coms["SPDR"] < 0:
-                    coms["SPDR"] = 0           
-        except:
-            continue
+#                 if coms["SPDR"] < 0:
+#                     coms["SPDR"] = 0           
+#         except:
+#             continue
         
- 
+# Google
+
+# def Mediepie():
+#     global frame,net,frameweb,coms,camera_y,kit,camera_x,modear,yaw,modestop,findperson
+#     timereset = True
+#     lastcom = "D"
+    
+#     timepro = 0
+#     while True:
+#         if frame is None or coms["Mode"] == 1:
+#             time.sleep(1)
+#             continue
+#         recognizer = sr.Recognizer()
+#         recognizer.energy_threshold = 100
+#         recognizer.dynamic_energy_threshold = True
+
+#         with sr.Microphone() as source:
+#             print("กรุณาพูดคำที่ต้องการตรวจจับ...")
+
+#             while True and not findperson:
+#                 try:
+#                     recognizer.adjust_for_ambient_noise(source, duration=1)
+#                     audio_stream = recognizer.listen(source)
+
+#                     # Amplify the audio stream
+#                     amplified_audio = amplify_audio(audio_stream, gain_dB=10)  # Adjust gain as needed
+
+#                     print("Google")
+#                     text = recognizer.recognize_google(amplified_audio, language="th-TH", show_all=False)
+#                     print("คำที่ตรวจจับได้คือ: {}".format(text))
+#                     if "ถังขยะ" in text:
+#                         sound_list = ['test2.wav',"test.wav","test3.wav"]
+#                         # โหลดและปรับระดับความดังของไฟล์เสียง MP3 ด้วย PyDub
+#                         mp3_audio = AudioSegment.from_mp3(sound_list[random.randint(1,1)])
+#                         mp3_audio = mp3_audio + 10  # เพิ่มความดัง 10 dB
+
+#                         wav_io = BytesIO()
+#                         mp3_audio.export(wav_io, format="wav")
+
+#                         wav_io.seek(0)
+#                         pygame.mixer.init()
+#                         pygame.mixer.music.load(wav_io, 'wav')
+
+#                         pygame.mixer.music.play()
+
+#                         while pygame.mixer.music.get_busy():
+#                             continue
+#                         findperson = True
+#                         break
+#                 except sr.UnknownValueError:
+#                     print("ไม่สามารถตรวจจับคำพูด")
+#                 except sr.RequestError as e:
+#                     print("เกิดข้อผิดพลาดในการเชื่อมต่อกับ Google API: {}".format(e))
+#                 except KeyboardInterrupt:
+#                     print("โปรแกรมถูกหยุด")
+#                     break
+#         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+#         t = time.time_ns()
+#         results = holistic.process(frame_rgb)
+#         if results.pose_landmarks:
+#             # ตรวจจับหลายคน
+#             landmarks = pose_landmarks.landmark
+
+#             left_hand_y = landmarks[mp_pose.PoseLandmark.LEFT_WRIST].y
+#             right_hand_y = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST].y
+#             head_y = landmarks[mp_pose.PoseLandmark.NOSE].y
+#             head_x = landmarks[mp_pose.PoseLandmark.NOSE].x
+#             left_wrist = landmarks[mp_pose.PoseLandmark.LEFT_WRIST]
+#             right_wrist = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST]
+#             # ตำแหน่งของศีรษะและข้อเท้า
+#             head = landmarks[mp_pose.PoseLandmark.NOSE]
+#             left_ankle = landmarks[mp_pose.PoseLandmark.LEFT_ANKLE]
+#             right_ankle = landmarks[mp_pose.PoseLandmark.RIGHT_ANKLE]
+
+#             # คำนวณความกว้างจากระยะระหว่างมือซ้ายและมือขวา
+#             width = abs(right_wrist.x - left_wrist.x) * frame.shape[1]  # แปลงเป็นพิกเซล
+#             # คำนวณความสูงจากระยะระหว่างศีรษะและข้อเท้า
+#             height = abs((left_ankle.y + right_ankle.y) / 2 - head.y) * frame.shape[0]  # แปลงเป็นพิกเซล
+#             # Check if either hand is above the head for this person
+#             print(f"Person {i+1} Full Body Width: {width:.2f} pixels, Full Body Height: {height:.2f} pixels")
+#                 if left_hand_y < head_y or right_hand_y < head_y:
+                    
+#                     if timereset:
+#                         sound_list = ['test2.wav', "test.wav", "test3.wav"]
+#                         # โหลดและปรับระดับความดังของไฟล์เสียง MP3 ด้วย PyDub
+#                         mp3_audio = AudioSegment.from_mp3(sound_list[random.randint(2, 2)])
+#                         mp3_audio = mp3_audio + 10  # เพิ่มความดัง 10 dB
+
+#                         wav_io = BytesIO()
+#                         mp3_audio.export(wav_io, format="wav")
+
+#                         wav_io.seek(0)
+#                         pygame.mixer.init()
+#                         pygame.mixer.music.load(wav_io, 'wav')
+
+#                         pygame.mixer.music.play()
+
+#                         # รอให้เสียงเล่นเสร็จ
+#                         while pygame.mixer.music.get_busy():
+#                             continue
+#                         timereset = False
+#                     else:
+#                         findperson = True
+#                         modestop = True
+#                         timepro = time.time()
+#                         lastcom = ""
+#                         if head_y < 200:
+#                             camera_y += 2
+#                             kit.servo[0].angle = int(camera_y)
+#                         print(100-(((1280 * 720 - width*height)/(1280 * 720))*100))
+#                         if  100-(((1280 * 720 - width*height)/(1280 * 720))*100) > 50:
+#                             yaw = 0
+#                             distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+#                             distance2 = 120 if vl532.range/10 >= 120 else vl532.range/10
+#                             if distance1 < 100:
+#                                 Stop()
+#                             distance1_sum = distance1 
+#                             distance2_sum = distance2
+#                             time.sleep(0.1)
+#                             for i in range(1):
+#                                 distance1temp = 120 if vl53.range/10 >= 120 else vl53.range/10
+#                                 distance2temp = 120 if vl532.range/10 >= 120 else vl532.range/10
+                                
+#                                 distance1_sum += distance1temp
+#                                 distance2_sum += distance2temp
+#                                 time.sleep(0.1)
+#                             distance1 = distance1_sum / 2
+#                             distance2 = distance2_sum / 2
+
+#                             print("Averaged Distance1: ", distance1)
+#                             print("Averaged Distance2: ", distance2)
+#                             while distance1 > 30:
+#                                 if yaw < -10:
+#                                     D(20)
+#                                 elif yaw > 10:
+#                                     A(20)
+#                                 else:
+#                                     W(20)
+#                                 time.sleep(0.1)
+#                                 distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+#                             Stop()  
+#                             print("person off")
+#                             camera_y = 100
+#                             kit.servo[0].angle = int(camera_y)
+#                             modestop = True
+#                             openbin("on")
+#                             time.sleep(10)
+#                             openbin("off")
+#                             modestop = False
+#                             findperson = False
+#                             timereset = True
+#                             Stop()
+#                             break
+#                         if ((head_x) > 400 and (head_x) < 880) and coms["Mode"] == 0:
+#                             print("person W")
+#                             yaw = 0
+#                             W(30)
+#                         elif (head_x <= 400) and coms["Mode"] == 0:
+#                             print("person A")
+#                             A(30)
+#                             time.sleep(0.2)
+#                             Stop()
+#                         elif (head_x > 880) and coms["Mode"] == 0:
+#                             print("person D")
+#                             D(30)
+#                             time.sleep(0.2)
+#                             Stop()
+#                         modestop = False
+#                         break
+#         if time.time() - timepro > 10 and findperson:
+#             modestop = True
+#             modear = True
+#             if lastcom == "D":
+#                 D(30)
+#             elif lastcom == "A":
+#                 A(30)
+#             elif yaw <= 0:
+#                 D(30)
+#                 lastcom = "D"
+#             elif yaw > 0:
+#                 A(30)
+#                 lastcom = "A"
+#             time.sleep(0.5)
+#             Stop()
+#             time.sleep(1)
+
+                    
+
+def amplify_audio(audio_stream, gain_dB=10):
+    # Convert the raw audio to AudioSegment for processing
+    audio_segment = AudioSegment.from_file(BytesIO(audio_stream.get_wav_data()))
+    # Amplify the audio
+    amplified_audio = audio_segment + gain_dB
+    # Convert back to audio data for recognition
+    return sr.AudioData(amplified_audio.raw_data, audio_stream.sample_rate, audio_stream.sample_width)
+
         
 # Yolo
-
+findperson = False
 def Yolo_tiny():
-    global frame,net,frameweb,coms,camera_y,kit,camera_x,modear,vl53_1,vl53_2
-    timereset = 0
-    lastcom = "D"
+    global frame,net,frameweb,coms,camera_y,kit,camera_x,modear,yaw,modestop,findperson,timereset
     
-    timepro = 0
+    lastcom = ""
+    
+    timepro = time.time()
     while True:
         if frame is None or coms["Mode"] == 1:
+            time.sleep(1)
             continue
-        # timepro = time.time_ns()
-        height, width = frame.shape[:2]
-        blob = cv.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
-        net.setInput(blob)
-        layer_names = net.getLayerNames()
-        output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
-        detections = net.forward(output_layers)
-
-        boxes, confidences, class_ids = [], [], []
-        for out in detections:
-            for detection in out:
-                scores = detection[5:]
-                class_id = np.argmax(scores)
-                confidence = scores[class_id]
-                if confidence > 0.5:
-                    box = detection[0:4] * np.array([width, height, width, height])
-                    (centerX, centerY, w, h) = box.astype("int")
-                    x = int(centerX - (w / 2))
-                    y = int(centerY - (h / 2))
-                    boxes.append([x, y, int(w), int(h)])
-                    confidences.append(float(confidence))
-                    class_ids.append(class_id)
-
-        indices = cv.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
-        if len(indices) > 0:
-            for i in indices.flatten():
-                x, y, w, h = boxes[i]
-                label = str(classes[class_ids[i]])
-                confidence = confidences[i]
-                color = (0, 255, 0)
-                cv.rectangle(frameweb, (x, y), (x + w, y + h), color, 2)
-                if label == "person":
-                    if modear:
-                        time.sleep(0.3)
-                        modear= False
-                        break
-                    print(f"x = {x} w = {w} x+w = {x+w}")
-                    if y < 100:
-                        camera_y += 2
-                        kit.servo[4].angle = int(camera_y)
-                    print(100-(((1280 * 720 - w*h)/(1280 * 720))*100))
-                    if  100-(((1280 * 720 - w*h)/(1280 * 720))*100) > 50:
-                        print("person off")
-                        coms["Break"] = True
-                        break
-                    if ((x+(w//2)) > 400 and (x+(w//2)) < 880) and coms["Mode"] == 0:
-                        print("person W")
-                        
-                        coms["Last"] = coms["Goto"]
-                        coms["Goto"] = "W"
-                        coms["Point"] = 0.1 + ((((1280 * 720 - w*h)/(1280 * 720))*100) / 1000)
-                        coms["SPDR"] = 0.8
-                        coms["SPDL"] = 0.8
-                        coms["Break"] = False
-                    elif ((x+(w//2)) <= 400) and coms["Mode"] == 0:
-                        print("person A")
-                        coms["Last"] = coms["Goto"]
-                        coms["Goto"] = "A"
-                        lastcom = "A"
-                        coms["Break"] = True
-                        coms["Point"] = (0.1 + ((400 - (x+w))/10000))
-                        coms["SPDL"] = 0.3
-                        coms["SPDR"] = 0.3
-                    elif ((x+(w//2)) > 880) and coms["Mode"] == 0:
-                        print("person D")
-                        coms["Last"] = coms["Goto"]
-                        coms["Goto"] = "D"
-                        lastcom = "D"
-                        coms["Break"] = True
-                        coms["Point"] = 0.1 + (((x+w) - 400)/10000)
-                        coms["SPDL"] = 0.3
-                        coms["SPDR"] = 0.3
-                    timereset = 0
-                    break
         
-        if timereset > 10:
-            # print(lastcom)
-            while not camera_y == 95:
-                if camera_y > 95:
-                    camera_y -= 1
-                    kit.servo[4].angle = int(camera_y)
-                else:
-                    camera_y += 1
-                    kit.servo[4].angle = int(camera_y)
-            coms["Last"] = coms["Goto"]
-            coms["Goto"] = lastcom
-            coms["Break"] = True
-            coms["Point"] = 0.15
-            coms["SPDL"] = 0.4
-            coms["SPDR"] = 0.4
-            timereset = 0
-            modear = True
-        else:
-            timereset += 1
-        if timereset == 4 and not coms["Break"] and not modear:
-            timereset = 0
-            coms["Break"] = True
-        if timereset == 3 and modear:
-            coms["Last"] = coms["Goto"]
-            coms["Goto"] = lastcom
-            coms["Break"] = True
-            coms["Point"] = 0.15
-            coms["SPDL"] = 0.4
-            coms["SPDR"] = 0.4
-            timereset = 0
-            modear = True
+
+        with sr.Microphone() as source:
+            recognizer = sr.Recognizer()
+            recognizer.energy_threshold = 100
+            recognizer.dynamic_energy_threshold = False
+            while True and timereset:
+                try:
+                    
+                    recognizer.adjust_for_ambient_noise(source, duration=1)
+                    audio_stream = recognizer.listen(source)
+
+                    # Amplify the audio stream
+                    amplified_audio = amplify_audio(audio_stream, gain_dB=40)  # Adjust gain as needed
+
+                    print("Google")
+                    text = recognizer.recognize_google(amplified_audio, language="th-TH", show_all=False)
+                    print("คำที่ตรวจจับได้คือ: {}".format(text))
+                    if "ถังขยะ" in text:
+                        sound_list = ['test2.wav',"test.wav","test3.wav"]
+                        # โหลดและปรับระดับความดังของไฟล์เสียง MP3 ด้วย PyDub
+                        mp3_audio = AudioSegment.from_mp3(sound_list[random.randint(2,2)])
+                        mp3_audio = mp3_audio + 0  # เพิ่มความดัง 10 dB
+
+                        wav_io = BytesIO()
+                        mp3_audio.export(wav_io, format="wav")
+
+                        wav_io.seek(0)
+                        pygame.mixer.init()
+                        pygame.mixer.music.load(wav_io, 'wav')
+
+                        pygame.mixer.music.play()
+
+                        while pygame.mixer.music.get_busy():
+                            continue
+                        findperson = True
+                        timereset = False
+                        break
+                except sr.UnknownValueError:
+                    print("ไม่สามารถตรวจจับคำพูด")
+                except sr.RequestError as e:
+                    print("เกิดข้อผิดพลาดในการเชื่อมต่อกับ Google API: {}".format(e))
+                except KeyboardInterrupt:
+                    print("โปรแกรมถูกหยุด")
+                    break
+        try:
+            height, width = frame.shape[:2]
+            blob = cv.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
+            net.setInput(blob)
+            layer_names = net.getLayerNames()
+            output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
+            detections = net.forward(output_layers)
+
+            boxes, confidences, class_ids = [], [], []
+            for out in detections:
+                for detection in out:
+                    scores = detection[5:]
+                    class_id = np.argmax(scores)
+                    confidence = scores[class_id]
+                    if confidence > 0.5:
+                        box = detection[0:4] * np.array([width, height, width, height])
+                        (centerX, centerY, w, h) = box.astype("int")
+                        x = int(centerX - (w / 2))
+                        y = int(centerY - (h / 2))
+                        boxes.append([x, y, int(w), int(h)])
+                        confidences.append(float(confidence))
+                        class_ids.append(class_id)
+
+            indices = cv.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+            if len(indices) > 0:
+                for i in indices.flatten():
+                    x, y, w, h = boxes[i]
+                    label = str(classes[class_ids[i]])
+                    confidence = confidences[i]
+                    color = (0, 255, 0)
+                    cv.rectangle(frameweb, (x, y), (x + w, y + h), color, 2)
+                    if label == "person" and modear:
+                        # roi = frame[y:y+h, x:x+w]  # ตัดส่วนที่ตรวจจับได้
+
+                        # # ใช้ MediaPipe Pose กับภาพที่ถูกตัดออกมา
+                        # roi_rgb = cv2.cvtColor(roi, cv2.COLOR_BGR2RGB)
+                        # results = pose.process(roi_rgb)
+                        # if results.pose_landmarks:
+                        #     landmarks = results.pose_landmarks.landmark
+
+                        #     left_hand_y = landmarks[mp_pose.PoseLandmark.LEFT_WRIST].y
+                        #     right_hand_y = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST].y
+                        #     left_shoulder_y = landmarks[mp_pose.PoseLandmark.LEFT_SHOULDER].y
+                        #     right_shoulder_y = landmarks[mp_pose.PoseLandmark.RIGHT_SHOULDER].y
+                        #     head = landmarks[mp_pose.PoseLandmark.NOSE].y
+                        # if left_hand_y < head or right_hand_y < head:
+                        findperson = True
+                        modestop = True
+                        timepro = time.time()
+                        lastcom = ""
+                        print(f"x = {x} w = {w} x+w = {x+w}")
+                        print(f"y = {y} h = {h} y+h = {y+h}")
+                        if y < 100:
+                            camera_y += 3
+                            kit.servo[0].angle = int(camera_y)
+                        print(100-(((1280 * 720 - w*h)/(1280 * 720))*100))
+                        if  100-(((1280 * 720 - w*h)/(1280 * 720))*100) > 50:
+                            if ((x+(w//2)) > 400 and (x+(w//2)) < 880) and coms["Mode"] == 0:
+                                yaw = 0
+                            elif ((x+(w//2)) <= 400) and coms["Mode"] == 0:
+                                yaw = 0-((640-(x+(w//2)))/12)
+                            elif ((x+(w//2)) > 880) and coms["Mode"] == 0:
+                                yaw = 0+(((x+(w//2))-640)/12)
+                            else:
+                                yaw = 0
+                            distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+                            distance2 = 120 if vl532.range/10 >= 120 else vl532.range/10
+                            if distance1 < 100:
+                                Stop()
+                            distance1_sum = distance1 
+                            distance2_sum = distance2
+                            time.sleep(0.1)
+                            for i in range(1):
+                                distance1temp = 120 if vl53.range/10 >= 120 else vl53.range/10
+                                distance2temp = 120 if vl532.range/10 >= 120 else vl532.range/10
+                                
+                                distance1_sum += distance1temp
+                                distance2_sum += distance2temp
+                                time.sleep(0.1)
+                            distance1 = distance1_sum / 2
+                            distance2 = distance2_sum / 2
+
+                            print("Averaged Distance1: ", distance1)
+                            print("Averaged Distance2: ", distance2)
+                            while distance1 > 40:
+                                if yaw < -10:
+                                    D(20)
+                                elif yaw > 10:
+                                    A(20)
+                                else:
+                                    W(20)
+                                time.sleep(0.1)
+                                distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+                            Stop()  
+                            print("person off")
+                            camera_y = 100
+                            kit.servo[0].angle = int(camera_y)
+                            modestop = True
+                            openbin("on")
+                            time.sleep(10)
+                            openbin("off")
+                            modestop = False
+                            findperson = False
+                            Stop()
+                            break
+                        if ((x+(w//2)) > 400 and (x+(w//2)) < 880) and coms["Mode"] == 0:
+                            print("person W")
+                            yaw = 0
+                            W(30)
+                        elif ((x+(w//2)) <= 400) and coms["Mode"] == 0:
+                            print("person A")
+                            A(30)
+                            time.sleep(0.15)
+                            Stop()
+                        elif ((x+(w//2)) > 880) and coms["Mode"] == 0:
+                            print("person D")
+                            D(30)
+                            time.sleep(0.15)
+                            Stop()
+                        modestop = False
+                        break
+        
         # print(coms["Break"])
         # print(f"Time Prosess {(time.time_ns()-timepro)/1000000}")
+        except:
+            print("Error")
+        if time.time() - timepro > 5 and findperson:
+            modestop = True
+            modear = True
+            if lastcom == "D":
+                D(30)
+            elif lastcom == "A":
+                A(30)
+            elif yaw <= 0:
+                D(30)
+                lastcom = "D"
+            elif yaw > 0:
+                A(30)
+                lastcom = "A"
+            time.sleep(0.5)
+            Stop()
+            time.sleep(1)
 
+def sensorDe():
+    global yaw,modear,modestop,findperson,timereset
+    while True:
+        try:
+            if modestop:
+                time.sleep(0.5)
+                continue
+            distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+            distance2 = 120 if vl532.range/10 >= 120 else vl532.range/10
 
+            distance1_sum = distance1 
+            distance2_sum = distance2
+            time.sleep(0.1)
+            for i in range(1):
+                distance1temp = 120 if vl53.range/10 >= 120 else vl53.range/10
+                distance2temp = 120 if vl532.range/10 >= 120 else vl532.range/10
+                
+                distance1_sum += distance1temp
+                distance2_sum += distance2temp
+                time.sleep(0.1)
+            distance1 = distance1_sum / 2
+            distance2 = distance2_sum / 2
+
+            # print("Averaged Distance1: ", distance1)
+            # print("Averaged Distance2: ", distance2)
+            if distance1 < 40 or distance2 < 80:
+                modear = False
+                Stop()
+                S(30)
+                time.sleep(1)
+                if yaw <= 0 and findperson:
+                    D(30)
+                    time.sleep(1)
+                elif yaw > 0 and findperson:
+                    A(30)
+                    time.sleep(1)
+                else:
+                    A(40)
+                    time.sleep(0.8)
+                Stop()
+            elif not modestop:
+                modear = True
+                if not timereset:
+                    W(30)
+        except:
+            Stop()
+            Sensor_VL53L0X()
+def openbin(com):
+    if com == "off":
+        for i in range(90,0,-2):
+            kit.servo[4].angle = i
+            time.sleep(0.005)
+    elif com == "on":
+        for i in range(0,90,2):
+            kit.servo[4].angle = i
+            time.sleep(0.005)
 def Yolo():
     mode = False
     tem = 0
     global model,frame,coms,camera_y,kit
     while True:
         if frame is None or coms["Mode"] == 1:
+            time.sleep(1)
             continue
         results = model.predict(frame,conf=0.6,classes=(0))
         print(f"c y = {camera_y}")
@@ -460,7 +851,7 @@ def Yolo():
                 print(f"tem = {tem} der = {der} he = {he} angle_radians = {angle_radians} tan_value = {tan_value} abs(camera_y)+abs(he) = {abs(camera_y)-abs(he)}")
                 print(camera_y)
                 camera_y = 100
-                kit.servo[4].angle = camera_y
+                kit.servo[0].angle = camera_y
                 print(f"c = {a}")
                 time.sleep(5)
                 tem = 0
@@ -469,14 +860,14 @@ def Yolo():
                 camera_y = camera_y - 2
                 if camera_y <= 0:
                     camera_y = 90
-                kit.servo[4].angle = camera_y
+                kit.servo[0].angle = camera_y
                 # time.sleep(0.5)
             elif not mode and tem == 0:
                 tem = xy[0][3]
                 camera_y = camera_y - 2
                 if camera_y <= 0:
                     camera_y = 90
-                kit.servo[4].angle = camera_y
+                kit.servo[0].angle = camera_y
                 mode = True
                 time.sleep(1)
                 
@@ -567,18 +958,36 @@ def senddataDashboard():
 async def main_asyncio():
     await main()
 
-  
+def get_gyro():
+    global yaw,prev_time
+    while True:
+        gyro_data = sensor.get_gyro_data()
+
+        gyro_data['y'] -= gyro_bias['y']
+
+        curr_time = time.time()
+        dt = curr_time - prev_time
+        prev_time = curr_time
+
+        delta_yaw = gyro_data['y'] * dt
+        yaw += delta_yaw
+
+        # print(f"Yaw: {yaw:.2f} degrees")
+        time.sleep(0.01)
 
 if __name__ == "__main__":
     camera_thread = threading.Thread(target=read_camera)
     camera_thread.daemon = True
     Yolo_thread = threading.Thread(target=Yolo_tiny)
     Yolo_thread.daemon = True
-    Motor_thread = threading.Thread(target=DriveMotor)
+    Motor_thread = threading.Thread(target=get_gyro)
     Motor_thread.daemon = True
+    Sensor_thread = threading.Thread(target=sensorDe)
+    Sensor_thread.daemon = True
     camera_thread.start()
     Yolo_thread.start()
     Motor_thread.start()
+    Sensor_thread.start()
     
     asyncio_thread = threading.Thread(target=asyncio.run, args=(main_asyncio(),))
     asyncio_thread.start()

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flask and JS HTTP Example</title>
+</head>
+<body>
+    <h1 id="responseMessage"></h1>
+
+
+    <script>
+        // Fetch data from the Flask API endpoint
+        fetch('http://127.0.0.1:5000/api/data')
+            .then(response => response.json())
+            .then(data => {
+                for(let i=0;i<data.time.length;i++){
+                    document.getElementById('responseMessage').innerText += i+1 +" "+data.time[i] +"/"+data.Watt[i]+"/"+data.Battery[i]+"\n"
+                }
+            })
+            .catch(error => console.error('Error:', error));
+    </script>
+</body>
+</html>

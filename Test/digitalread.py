@@ -18,7 +18,7 @@ try:
             print("Pin is HIGH")
         else:
             print("Pin is LOW")
-        time.sleep(0.5)  # Adjust delay as needed
+        time.sleep(0.5)  
 
 except KeyboardInterrupt:
     pass

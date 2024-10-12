@@ -56,17 +56,28 @@ pin_br = 27
 pin_fr = 22  
 pin_bl = 17  
 pin_fl = 4   
-
+modestop = False
 GPIO.setup(20, GPIO.OUT)
 GPIO.setup(21, GPIO.OUT)
+GPIO.output(20,0)
+GPIO.output(21,0)
+
+GPIO.output(20,1)
+time.sleep(0.1)       
+VL53L0X(i2c_bus,address=41).set_address(0x2A)
+time.sleep(0.1)       
+GPIO.output(21,1)
+VL53L0X(i2c_bus,address=41).set_address(0x2B)
 GPIO.output(20,1)
 GPIO.output(21,1)
 
-
-vl53 = VL53L0X(i2c=i2c_bus,address=0x29)
+vl53 = VL53L0X(i2c=i2c_bus,address=0x2A)
+vl532 = VL53L0X(i2c=i2c_bus,address=0x2B)
 
 vl53.measurement_timing_budget = 50000
+vl532.measurement_timing_budget = 50000
 vl53.signal_rate_limit = 0.1
+vl532.signal_rate_limit = 0.1
 
 kit = ServoKit(i2c=i2c_bus,channels=8)
 ina219 = INA219(i2c_bus,0x41)
@@ -75,13 +86,16 @@ ina219.shunt_adc_resolution = ADCResolution.ADCRES_12BIT_32S
 ina219.bus_voltage_range = BusVoltageRange.RANGE_16V
 mp_pose = mp.solutions.pose
 pose = mp_pose.Pose()
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
-sensor1 = DistanceSensor(echo=11, trigger=9,max_distance=8) #IN
-sensor2 = DistanceSensor(echo=24, trigger=23,max_distance=8) #F
-sensor3 = DistanceSensor(echo=14, trigger=15,max_distance=8) #R
-sensor4 = DistanceSensor(echo=6, trigger=13,max_distance=8) #F
 
+
+# subprocess.run(['sudo', 'iptables', '-t', 'nat', '-A', 'POSTROUTING', '-o', 'eth0', '-j', 'MASQUERADE'], check=True)
+
+# subprocess.run(['sudo', 'iptables', '-t', 'nat', '-I', 'PREROUTING', '-d', 'BinMa.cpe.com', '-p', 'tcp', '--dport', '80', '-j', 'DNAT', '--to-destination', '192.168.4.1:80'], check=True)
+
+# subprocess.run(['sudo', 'sh', '-c', 'iptables-save > /etc/iptables.ipv4.nat'], check=True)
+
+# sensor = DistanceSensor(echo=6, trigger=5,max_distance=8)
+# sensor2 = DistanceSensor(echo=16, trigger=26,max_distance=8)
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(pin_br, GPIO.OUT)
 GPIO.setup(pin_fr, GPIO.OUT)
@@ -103,8 +117,8 @@ ip = ""
 ports = 8001
 CONNECTION = set()
 camera_x = 90
-camera_y = 120
-kit.servo[0].angle = 120 #X
+camera_y = 135
+kit.servo[0].angle = 135 #X
 kit.servo[4].angle = 0 #Y
 modear = True
 # model = YOLO("yolov8n.pt")
@@ -130,7 +144,7 @@ coms = {
 timereset = True
 def W(Speed):
     pwm_br.ChangeDutyCycle(0)              
-    pwm_fr.ChangeDutyCycle(Speed+2)      
+    pwm_fr.ChangeDutyCycle(Speed+1)      
     pwm_bl.ChangeDutyCycle(0)              
     pwm_fl.ChangeDutyCycle(Speed)   
 def S(Speed):
@@ -156,7 +170,7 @@ def Stop():
 
 yaw = 0
 prev_time = time.time()
-num_calibration_samples = 200
+num_calibration_samples = 100
 gyro_bias = {'x': 0, 'y': 0, 'z': 0}
 print("Calibrating gyroscope...")
 
@@ -216,6 +230,14 @@ async def handler(websocket):
                 elif data["status"] == "reset":
                     camera_y = 90
                     kit.servo[0].angle = int(camera_y)
+                    pygame.mixer.init()
+
+                    pygame.mixer.music.load("sound/testsound.mp3")
+
+                    pygame.mixer.music.play()
+
+                    while pygame.mixer.music.get_busy():
+                        continue
                 elif data["status"] == "w":
                     #print("w")
                     W(50)
@@ -270,92 +292,65 @@ async def main():
 
 # Sensor ระยะทาง
 
-def get_bounding_box(hand_landmarks, frame_width, frame_height):
-    min_x = min([landmark.x for landmark in hand_landmarks.landmark]) * frame_width
-    min_y = min([landmark.y for landmark in hand_landmarks.landmark]) * frame_height
-    max_x = max([landmark.x for landmark in hand_landmarks.landmark]) * frame_width
-    max_y = max([landmark.y for landmark in hand_landmarks.landmark]) * frame_height
-    return (min_x, min_y), (max_x, max_y)
-def automode():
-    global frame, yaw, kit, coms, mp_hands
-    mp_hands = mp.solutions.hands
-    with mp_hands.Hands(
-            static_image_mode=True,
-            max_num_hands=2,
-            min_detection_confidence=0.5
-        ) as hands:
-        while True:
-            if frame is None or coms["Mode"] != 0:
-                Stop()
-                print("Error: No frame available for detection.")
-                time.sleep(1)
-                continue
+def Sensor_VL53L0X():
+    global i2c_bus
+    GPIO.output(20,0)
+    GPIO.output(21,0)
 
-            frame = cv2.flip(frame, 1) 
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            result = hands.process(rgb_frame)
-            if result.multi_hand_landmarks:
-                for hand_landmarks in result.multi_hand_landmarks:
-                    (min_x, min_y), (max_x, max_y) = get_bounding_box(hand_landmarks, 1280, 720)
-                    box_area = (max_x - min_x) * (max_y - min_y)
-                    frame_area = 1280 * 720
-                    hand_percentage = (box_area / frame_area) * 100
-                    if hand_percentage > 10:
-                        Stop()
-                        openbin("on")
-                        time.sleep(10)
-                        openbin("off")
-                        continue
-            if sensor2.distance * 100  < 65 or sensor3.distance * 100 < 20 or sensor4.distance * 100 < 20:
-                if sensor2.distance * 100  < 65:
-                    Stop()
-                    S(30)
-                    time.sleep(1.2)
-                    Stop()
-                    W(30)
-                    time.sleep(0.3)
-                    Stop()
-                    if sensor3.distance * 100  > 100:
-                        D(30)
-                        time.sleep(0.8)
-                    elif sensor4.distance * 100  > 100:
-                        A(30)
-                        time.sleep(0.8)
-                    elif sensor3.distance * 100  < sensor4.distance * 100 :
-                        A(30)
-                        time.sleep(0.8)
-                    elif sensor3.distance * 100  < sensor4.distance * 100 :
-                        D(30)
-                        time.sleep(0.8)
-                    else:
-                        D(30)
-                        time.sleep(1)
-                    Stop()
-                else:
-                    Stop()
-                    S(30)
-                    time.sleep(0.4)
-                    Stop()
-                    if sensor3.distance * 100  > 100:
-                        D(30)
-                        time.sleep(0.8)
-                    elif sensor4.distance * 100  > 100:
-                        A(30)
-                        time.sleep(0.8)
-                    elif sensor3.distance * 100  < sensor4.distance * 100 :
-                        A(30)
-                        time.sleep(0.8)
-                    elif sensor3.distance * 100  < sensor4.distance * 100 :
-                        D(30)
-                        time.sleep(0.8)
-                    else:
-                        D(30)
-                        time.sleep(1)
-                    Stop()
-            else:
-                W(35)
+    GPIO.output(20,1)
+    time.sleep(0.1)       
+    VL53L0X(i2c_bus,address=41).set_address(0x2A)
+    time.sleep(0.1)       
+    GPIO.output(21,1)
+    VL53L0X(i2c_bus,address=41).set_address(0x2B)
+    GPIO.output(20,1)
+    GPIO.output(21,1)
 
-            
+    vl53 = VL53L0X(i2c=i2c_bus,address=0x2A)
+    vl532 = VL53L0X(i2c=i2c_bus,address=0x2B)
+
+    vl53.measurement_timing_budget = 50000
+    vl532.measurement_timing_budget = 50000
+    vl53.signal_rate_limit = 0.1
+    vl532.signal_rate_limit = 0.1
+
+def Follow():
+    global frame,net,frameweb,coms,camera_y,kit,camera_x,modear,yaw,modestop,timereset
+    while True:
+        if frame is None:
+            print("Error: No frame available for detection.")
+            return None, None, None, None
+        height, width = frame.shape[:2]
+        blob = cv.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
+        net.setInput(blob)
+        layer_names = net.getLayerNames()
+        output_layers = [layer_names[i - 1] for i in net.getUnconnectedOutLayers()]
+        detections = net.forward(output_layers)
+
+        boxes, confidences, class_ids = [], [], []
+        for out in detections:
+            for detection in out:
+                scores = detection[5:]
+                class_id = np.argmax(scores)
+                confidence = scores[class_id]
+                if confidence > 0.5:
+                    box = detection[0:4] * np.array([width, height, width, height])
+                    (centerX, centerY, w, h) = box.astype("int")
+                    x = int(centerX - (w / 2))
+                    y = int(centerY - (h / 2))
+                    boxes.append([x, y, int(w), int(h)])
+                    confidences.append(float(confidence))
+                    class_ids.append(class_id)
+
+        indices = cv.dnn.NMSBoxes(boxes, confidences, 0.5, 0.4)
+        if len(indices) > 0:
+            for i in indices.flatten():
+                x, y, w, h = boxes[i]
+                label = str(classes[class_ids[i]])
+                confidence = confidences[i]
+                color = (0, 255, 0)
+                if label == "person":
+                    print("person")
 
 def openbin(com):
     if com == "off":
@@ -370,20 +365,93 @@ def openbin(com):
                 
 
 # Send Frame Camera 
+button_pin = 25
+GPIO.setmode(GPIO.BCM)
+GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)  # Using pull-down resistor
 
 def read_camera():
-    global frame, cap,frameweb
-    cap = cv.VideoCapture(0)
-    cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frameweb = frame.copy()
-        cv.rectangle(frameweb, (620,340), (660,380), (0, 255, 0), 2)
-        time.sleep(0.033) 
-
+    global yaw
+    mode = True
+    while True:
+        while not GPIO.input(25) and mode:
+            if yaw < -2:
+                D(20)
+            elif yaw > 2:
+                A(20)
+            else:
+                W(20)
+            time.sleep(0.05)
+        mode = False
+        Stop()
+        yaw = 0
+        while yaw < 180:
+            D(20)
+            time.sleep(0.05)
+        Stop()
+        while not GPIO.input(25):
+            if not GPIO.input(25):
+                for i in range(10):
+                    pwm_br.ChangeDutyCycle(0)    
+                    pwm_fr.ChangeDutyCycle(20)   
+                    pwm_bl.ChangeDutyCycle(0)   
+                    pwm_fl.ChangeDutyCycle(20) 
+                    time.sleep(0.1)
+                    if GPIO.input(25):
+                        Stop()
+                        break
+            if not GPIO.input(25):
+                for i in range(10):
+                    pwm_br.ChangeDutyCycle(20)    
+                    pwm_fr.ChangeDutyCycle(0)   
+                    pwm_bl.ChangeDutyCycle(20)   
+                    pwm_fl.ChangeDutyCycle(0) 
+                    time.sleep(0.1)
+                    if GPIO.input(25):
+                        Stop()
+                        break
+        while True:
+            distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+            if not GPIO.input(25):
+                while not GPIO.input(25):
+                    if not GPIO.input(25):
+                        for i in range(5):
+                            pwm_br.ChangeDutyCycle(20)    
+                            pwm_fr.ChangeDutyCycle(0)   
+                            pwm_bl.ChangeDutyCycle(0)   
+                            pwm_fl.ChangeDutyCycle(20) 
+                            time.sleep(0.1)
+                            if GPIO.input(25):
+                                Stop()
+                                break
+                    if not GPIO.input(25):
+                        for i in range(10):
+                            pwm_br.ChangeDutyCycle(0)    
+                            pwm_fr.ChangeDutyCycle(20)   
+                            pwm_bl.ChangeDutyCycle(20)   
+                            pwm_fl.ChangeDutyCycle(0) 
+                            time.sleep(0.1)
+                            if GPIO.input(25):
+                                Stop()
+                                break
+            elif distance1 < 70:
+                Stop()
+                distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+                distance1_sum = distance1 
+                time.sleep(0.05)
+                for i in range(4):
+                    distance1temp = 120 if vl53.range/10 >= 120 else vl53.range/10
+                    distance1_sum += distance1temp
+                    time.sleep(0.05)
+                distance1 = distance1_sum / 5
+                if distance1 < 50:
+                    yaw = 0
+                    while yaw < 180:
+                        D(20)
+                        time.sleep(0.05)
+                    Stop()
+            else:
+                S(20)
+            time.sleep(0.1)
 
 # WebCam in Website
 def generate_frames():
@@ -436,6 +504,9 @@ def senddataDashboard():
     return jsonify(data)
 
 
+
+# Start Programs
+
 async def main_asyncio():
     await main()
 
@@ -459,15 +530,9 @@ def get_gyro():
 if __name__ == "__main__":
     camera_thread = threading.Thread(target=read_camera)
     camera_thread.daemon = True
-    automode_thread = threading.Thread(target=automode)
-    automode_thread.daemon = True
     Motor_thread = threading.Thread(target=get_gyro)
     Motor_thread.daemon = True
     camera_thread.start()
-    automode_thread.start()
     Motor_thread.start()
-    
-    asyncio_thread = threading.Thread(target=asyncio.run, args=(main_asyncio(),))
-    asyncio_thread.start()
     
     app.run(host='0.0.0.0', port=8000, threaded=True)

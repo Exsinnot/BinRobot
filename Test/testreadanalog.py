@@ -2,7 +2,7 @@ import RPi.GPIO as GPIO
 import time
 
 # Pin setup
-button_pin = 10
+button_pin = 25
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)  # Using pull-down resistor
 

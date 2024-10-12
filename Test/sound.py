@@ -30,10 +30,10 @@ def convert_to_wav(audio_data):
     return wav_io
 def detect_speech_real_time_continuous():
     recognizer = sr.Recognizer()
-    recognizer.energy_threshold = 100
+    recognizer.energy_threshold = 500
     recognizer.dynamic_energy_threshold = True
 
-    with sr.Microphone() as source:
+    with sr.Microphone(device_index=1) as source:
         print("กรุณาพูดคำที่ต้องการตรวจจับ...")
 
         while True:

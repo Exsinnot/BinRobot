@@ -77,7 +77,7 @@ vl532 = VL53L0X(i2c=i2c_bus,address=0x2B)
 vl53.measurement_timing_budget = 50000
 vl532.measurement_timing_budget = 50000
 vl53.signal_rate_limit = 0.1
-vl532.signal_rate_limit = 0.1
+vl532.signal_rate_limit = 0.05
 
 kit = ServoKit(i2c=i2c_bus,channels=8)
 ina219 = INA219(i2c_bus,0x41)
@@ -144,7 +144,7 @@ coms = {
 timereset = True
 def W(Speed):
     pwm_br.ChangeDutyCycle(0)              
-    pwm_fr.ChangeDutyCycle(Speed+1)      
+    pwm_fr.ChangeDutyCycle(Speed+2)      
     pwm_bl.ChangeDutyCycle(0)              
     pwm_fl.ChangeDutyCycle(Speed)   
 def S(Speed):
@@ -314,7 +314,7 @@ def Sensor_VL53L0X():
     vl53.measurement_timing_budget = 50000
     vl532.measurement_timing_budget = 50000
     vl53.signal_rate_limit = 0.1
-    vl532.signal_rate_limit = 0.1
+    vl532.signal_rate_limit = 0.05
 
 # หามุมเลี้ยวหลบ
 
@@ -564,9 +564,8 @@ def amplify_audio(audio_stream, gain_dB=10):
     # Convert back to audio data for recognition
     return sr.AudioData(amplified_audio.raw_data, audio_stream.sample_rate, audio_stream.sample_width)
 
-        
-# Yolo
-findperson = False
+
+findperson = True
 def Yolo_tiny():
     global frame,net,frameweb,coms,camera_y,kit,camera_x,modear,yaw,modestop,findperson,timereset
     
@@ -579,49 +578,49 @@ def Yolo_tiny():
             continue
         
 
-        with sr.Microphone() as source:
-            recognizer = sr.Recognizer()
-            recognizer.energy_threshold = 100
-            recognizer.dynamic_energy_threshold = False
-            while True and timereset:
-                try:
+        # with sr.Microphone() as source:
+        #     recognizer = sr.Recognizer()
+        #     recognizer.energy_threshold = 100
+        #     recognizer.dynamic_energy_threshold = False
+        #     while True and timereset:
+        #         try:
                     
-                    recognizer.adjust_for_ambient_noise(source, duration=1)
-                    audio_stream = recognizer.listen(source)
+        #             recognizer.adjust_for_ambient_noise(source, duration=1)
+        #             audio_stream = recognizer.listen(source)
 
-                    # Amplify the audio stream
-                    amplified_audio = amplify_audio(audio_stream, gain_dB=40)  # Adjust gain as needed
+        #             # Amplify the audio stream
+        #             amplified_audio = amplify_audio(audio_stream, gain_dB=40)  # Adjust gain as needed
 
-                    print("Google")
-                    text = recognizer.recognize_google(amplified_audio, language="th-TH", show_all=False)
-                    print("คำที่ตรวจจับได้คือ: {}".format(text))
-                    if "ถังขยะ" in text:
-                        sound_list = ['test2.wav',"test.wav","test3.wav"]
-                        # โหลดและปรับระดับความดังของไฟล์เสียง MP3 ด้วย PyDub
-                        mp3_audio = AudioSegment.from_mp3(sound_list[random.randint(2,2)])
-                        mp3_audio = mp3_audio + 0  # เพิ่มความดัง 10 dB
+        #             print("Google")
+        #             text = recognizer.recognize_google(amplified_audio, language="th-TH", show_all=False)
+        #             print("คำที่ตรวจจับได้คือ: {}".format(text))
+        #             if "ถังขยะ" in text:
+        #                 sound_list = ['test2.wav',"test.wav","test3.wav"]
+        #                 # โหลดและปรับระดับความดังของไฟล์เสียง MP3 ด้วย PyDub
+        #                 mp3_audio = AudioSegment.from_mp3(sound_list[random.randint(2,2)])
+        #                 mp3_audio = mp3_audio + 0  # เพิ่มความดัง 10 dB
 
-                        wav_io = BytesIO()
-                        mp3_audio.export(wav_io, format="wav")
+        #                 wav_io = BytesIO()
+        #                 mp3_audio.export(wav_io, format="wav")
 
-                        wav_io.seek(0)
-                        pygame.mixer.init()
-                        pygame.mixer.music.load(wav_io, 'wav')
+        #                 wav_io.seek(0)
+        #                 pygame.mixer.init()
+        #                 pygame.mixer.music.load(wav_io, 'wav')
 
-                        pygame.mixer.music.play()
+        #                 pygame.mixer.music.play()
 
-                        while pygame.mixer.music.get_busy():
-                            continue
-                        findperson = True
-                        timereset = False
-                        break
-                except sr.UnknownValueError:
-                    print("ไม่สามารถตรวจจับคำพูด")
-                except sr.RequestError as e:
-                    print("เกิดข้อผิดพลาดในการเชื่อมต่อกับ Google API: {}".format(e))
-                except KeyboardInterrupt:
-                    print("โปรแกรมถูกหยุด")
-                    break
+        #                 while pygame.mixer.music.get_busy():
+        #                     continue
+        #                 findperson = True
+        #                 timereset = False
+        #                 break
+        #         except sr.UnknownValueError:
+        #             print("ไม่สามารถตรวจจับคำพูด")
+        #         except sr.RequestError as e:
+        #             print("เกิดข้อผิดพลาดในการเชื่อมต่อกับ Google API: {}".format(e))
+        #         except KeyboardInterrupt:
+        #             print("โปรแกรมถูกหยุด")
+        #             break
         try:
             height, width = frame.shape[:2]
             blob = cv.dnn.blobFromImage(frame, 1/255.0, (416, 416), swapRB=True, crop=False)
@@ -669,22 +668,23 @@ def Yolo_tiny():
                         #     head = landmarks[mp_pose.PoseLandmark.NOSE].y
                         # if left_hand_y < head or right_hand_y < head:
                         findperson = True
-                        modestop = True
+                        modestop = False
                         timepro = time.time()
                         lastcom = ""
                         print(f"x = {x} w = {w} x+w = {x+w}")
                         print(f"y = {y} h = {h} y+h = {y+h}")
-                        if y < 100:
+                        if y < 300:
                             camera_y += 3
                             kit.servo[0].angle = int(camera_y)
                         print(100-(((1280 * 720 - w*h)/(1280 * 720))*100))
-                        if  100-(((1280 * 720 - w*h)/(1280 * 720))*100) > 50:
+                        if  100-(((1280 * 720 - w*h)/(1280 * 720))*100) > 40:
+                            modestop = True
                             if ((x+(w//2)) > 400 and (x+(w//2)) < 880) and coms["Mode"] == 0:
                                 yaw = 0
                             elif ((x+(w//2)) <= 400) and coms["Mode"] == 0:
-                                yaw = 0-((640-(x+(w//2)))/12)
+                                yaw = 0+((640-(x+(w//2)))/12)
                             elif ((x+(w//2)) > 880) and coms["Mode"] == 0:
-                                yaw = 0+(((x+(w//2))-640)/12)
+                                yaw = 0-(((x+(w//2))-640)/12)
                             else:
                                 yaw = 0
                             distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
@@ -693,7 +693,7 @@ def Yolo_tiny():
                                 Stop()
                             distance1_sum = distance1 
                             distance2_sum = distance2
-                            time.sleep(0.1)
+                            time.sleep(0.05)
                             for i in range(1):
                                 distance1temp = 120 if vl53.range/10 >= 120 else vl53.range/10
                                 distance2temp = 120 if vl532.range/10 >= 120 else vl532.range/10
@@ -706,7 +706,8 @@ def Yolo_tiny():
 
                             print("Averaged Distance1: ", distance1)
                             print("Averaged Distance2: ", distance2)
-                            while distance1 > 40:
+                            modestop = True
+                            while distance1 > 30:
                                 if yaw < -10:
                                     D(20)
                                 elif yaw > 10:
@@ -719,9 +720,8 @@ def Yolo_tiny():
                             print("person off")
                             camera_y = 100
                             kit.servo[0].angle = int(camera_y)
-                            modestop = True
                             openbin("on")
-                            time.sleep(10)
+                            time.sleep(30)
                             openbin("off")
                             modestop = False
                             findperson = False
@@ -777,20 +777,20 @@ def sensorDe():
 
             distance1_sum = distance1 
             distance2_sum = distance2
-            time.sleep(0.1)
-            for i in range(1):
+            time.sleep(0.05)
+            for i in range(2):
                 distance1temp = 120 if vl53.range/10 >= 120 else vl53.range/10
                 distance2temp = 120 if vl532.range/10 >= 120 else vl532.range/10
                 
                 distance1_sum += distance1temp
                 distance2_sum += distance2temp
-                time.sleep(0.1)
-            distance1 = distance1_sum / 2
-            distance2 = distance2_sum / 2
+                time.sleep(0.05)
+            distance1 = distance1_sum / 3
+            distance2 = distance2_sum / 3
 
-            # print("Averaged Distance1: ", distance1)
-            # print("Averaged Distance2: ", distance2)
-            if distance1 < 40 or distance2 < 80:
+            print("Averaged Distance1: ", distance1)
+            print("Averaged Distance2: ", distance2)
+            if distance1 < 40 or distance2 < 90:
                 modear = False
                 Stop()
                 S(30)
@@ -805,10 +805,12 @@ def sensorDe():
                     A(40)
                     time.sleep(0.8)
                 Stop()
-            elif not modestop:
+                W(30)
+                time.sleep(2.5)
+                Stop()
+            elif modestop:
                 modear = True
-                if not timereset:
-                    W(30)
+                W(30)
         except:
             Stop()
             Sensor_VL53L0X()
@@ -818,7 +820,7 @@ def openbin(com):
             kit.servo[4].angle = i
             time.sleep(0.005)
     elif com == "on":
-        for i in range(0,90,2):
+        for i in range(0,100,2):
             kit.servo[4].angle = i
             time.sleep(0.005)
 def Yolo():
@@ -917,9 +919,7 @@ def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 def get_ssid_linux():
     try:
-        # Run the command to get SSID
         result = subprocess.check_output(["nmcli", "-t", "-f", "active,ssid", "dev", "wifi"], encoding='utf-8')
-        # Filter the result to get the active SSID
         for line in result.splitlines():
             if line.startswith("yes:"):
                 return line.split(":")[1]

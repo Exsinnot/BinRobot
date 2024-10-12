@@ -13,14 +13,14 @@ while True:
     com = input()
     if com == "off":
         kit.servo[4].angle = 0
-        # for i in range(180,0,-5):
-        #     kit.servo[0].angle = i
-        #     time.sleep(0.1)
+        for i in range(180,0,-5):
+            kit.servo[0].angle = i
+            time.sleep(0.1)
     elif com == "on":
-        kit.servo[4].angle = 90
-        # for i in range(0,180,5):
-        #     kit.servo[0].angle = i
-        #     time.sleep(0.1)
+        kit.servo[4].angle = 100
+        for i in range(0,180,5):
+            kit.servo[0].angle = i
+            time.sleep(0.1)
 
 # while True:
 #     com = input()

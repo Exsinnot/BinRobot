@@ -3,12 +3,15 @@ from Def import VarGlobal
 import time
 
 def read_camera():
-    VarGlobal.cap = cv.VideoCapture(0)
-    VarGlobal.cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
-    VarGlobal.cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
-    while VarGlobal.cap.isOpened():
-        ret, VarGlobal.frame = VarGlobal.cap.read()
+    cap = cv.VideoCapture(0)
+    cap.set(cv.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv.CAP_PROP_FRAME_HEIGHT, 720)
+    while cap.isOpened():
+        ret, frame = cap.read()
         if not ret:
+            print("EERO")
             break
-        VarGlobal.frameweb = VarGlobal.frame.copy()
+        VarGlobal.frame = frame.copy()
+        VarGlobal.frameweb = frame.copy()
         time.sleep(0.033) 
+    print("Can not open camera")

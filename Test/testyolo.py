@@ -2,7 +2,7 @@ import cv2
 from ultralytics import YOLO
 
 # Load YOLOv8 model (use 'yolov8n.pt' for a small, pre-trained model or your own trained model)
-model = YOLO('/home/user/BinRobot/Test/best.pt')  # or your model path
+model = YOLO('/home/user/BinRobot/Test/yolov8n.pt')  # or your model path
 
 # Open a video capture (webcam in this case)
 cap = cv2.VideoCapture(0)

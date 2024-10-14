@@ -2,6 +2,7 @@ import threading
 import time
 import cv2 as cv
 import json
+import csv
 import os
 from flask_cors import CORS
 from flask import Flask, request, jsonify ,Response
@@ -26,6 +27,7 @@ from adafruit_vl53l0x import VL53L0X
 import pygame
 import mediapipe as mp
 from pydub import AudioSegment
+import glob
 from io import BytesIO
 import RPi.GPIO as GPIO
 import time
@@ -48,7 +50,7 @@ import time
 from pydub import AudioSegment
 from io import BytesIO
 import pygame
-
+from datetime import datetime
 import random
 sensor = mpu6050(0x68,bus=0)
 i2c_bus = busio.I2C(1, 0)
@@ -108,7 +110,8 @@ kit.servo[0].angle = 120 #X
 kit.servo[4].angle = 0 #Y
 modear = True
 # model = YOLO("yolov8n.pt")
-
+bus_voltage = ina219.bus_voltage  
+battery = int((bus_voltage - 10.5) / 0.015)
 app = Flask(__name__)
 CORS(app)
 net = cv.dnn.readNet('yolov4-tiny.weights', 'yolov4-tiny.cfg')
@@ -121,7 +124,7 @@ coms = {
     "Goto":None,
     "Last": None,
     "Point":None,
-    "Mode":0,
+    "Mode":4,
     "SPDL": 0.8,
     "SPDR": 0.8,
     "Break" : True
@@ -153,6 +156,7 @@ def Stop():
     pwm_fr.ChangeDutyCycle(0)   
     pwm_bl.ChangeDutyCycle(0)   
     pwm_fl.ChangeDutyCycle(0)  
+    
 
 yaw = 0
 prev_time = time.time()
@@ -287,7 +291,7 @@ def automode():
         while True:
             if frame is None or coms["Mode"] != 0:
                 Stop()
-                print("Error: No frame available for detection.")
+                # print("Error: No frame available for detection.")
                 time.sleep(1)
                 continue
 
@@ -384,7 +388,44 @@ def read_camera():
         cv.rectangle(frameweb, (620,340), (660,380), (0, 255, 0), 2)
         time.sleep(0.033) 
 
-
+def writelog():
+    global ina219,battery
+    timestart = time.time()
+    timesave = time.time()
+    sum = 0
+    sumbat = 0
+    count = 0
+    while True:
+        if time.time()-timestart >=1:
+            timestart = time.time()
+            bus_voltage = ina219.bus_voltage  
+            sumbat += int((bus_voltage - 10.5) / 0.015)
+            sum += ina219.power  
+            count +=1
+        if time.time()-timesave >= 60:
+            timesave = time.time()
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            folder_path = '/home/user/BinRobot/data/*.csv'  # เลือกเฉพาะไฟล์ .csv
+            file_names = glob.glob(folder_path)
+            if f"/home/user/BinRobot/data/{current_date}.csv" in file_names:
+                watt = sum//count
+                battery = sumbat//count
+                with open(f'/home/user/BinRobot/data/{current_date}.csv', 'a', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow([datetime.now().strftime("%d-%m-%y %H:%M:%S"), int(battery), int(watt)])
+                sum = 0
+                count = 0
+                sumbat = 0
+            else:
+                watt = sum//count
+                battery = sumbat//count
+                with open(f'/home/user/BinRobot/data/{current_date}.csv', 'w', newline='') as file:
+                    writer = csv.writer(file)
+                    writer.writerow([datetime.now().strftime("%d-%m-%y %H:%M:%S"), int(battery), int(watt)])
+                sum = 0
+                count = 0
+                sumbat = 0
+        time.sleep(0.3)
 # WebCam in Website
 def generate_frames():
     global frameweb
@@ -401,9 +442,7 @@ def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 def get_ssid_linux():
     try:
-        # Run the command to get SSID
         result = subprocess.check_output(["nmcli", "-t", "-f", "active,ssid", "dev", "wifi"], encoding='utf-8')
-        # Filter the result to get the active SSID
         for line in result.splitlines():
             if line.startswith("yes:"):
                 return line.split(":")[1]
@@ -411,30 +450,112 @@ def get_ssid_linux():
     except subprocess.CalledProcessError as e:
         return f"Error: {e}"
     
-@app.route('/getdatadb', methods=['GET'])
-def senddataDashboard():
-    global ina219
-    data = {
-        "Battery" : 0,
-        "Trash": 0,
-        "Batloss": 0,
-        "SSID":"",
-        "Status":"",
-    }
-    bus_voltage = ina219.bus_voltage  
-    shunt_voltage = ina219.shunt_voltage 
-    current = ina219.current  
-    power = ina219.power  
-    battery = (bus_voltage - 11.1) / 0.015
-    print(bus_voltage)
-    print(current)
-    data["Battery"] = battery
-    data["Trash"] = random.randint(0,100)
-    data["SSID"] = get_ssid_linux()
-    data["Status"] = "Stay"
-    data["Batloss"] = 0
-    return jsonify(data)
+@app.route('/api/getdata', methods=['GET'])
+def get_data():
+    global ina219,coms,battery
+    data = {}
+    page = request.args.get('page')
+    print(page)
+    Status = ['Auto','Manual',"Follow","Stay","Change"]
+    if page == "Dashboard":
+        data["Batterylevel"] = int(battery)
+        data["Batterydestroy"] = 0 #ยังไม่ได้เขียน
+        data["Trashlevel"]= int(abs(100-(int(sensor1.distance*100)*100/25)))
+        data["Status"]= Status[coms["Mode"]]
+        data["Wifi"]= get_ssid_linux()
+        return jsonify(data)
+    elif page == "Setting":
+        with open("/home/user/BinRobot/data/Setting.json", mode='r', encoding='utf-8') as file:
+            data = json.load(file)
+        print(data)
+        return jsonify(data)
+    else:
+        return jsonify({"message": "No valid page specified"})
+    
 
+@app.route('/api/getGraph', methods=['GET'])
+def get_date():
+    date = request.args.get('dateSelect')
+    data = {
+        "time":[],
+        "battery":[],
+        "powerUsage":[]
+    }
+    print(f"input = {date}")
+    if date == "":
+        folder_path = '/home/user/BinRobot/data/'
+        datetime = []
+        hourly_data = {}
+        file_names = glob.glob(os.path.join(folder_path, "*.csv")) # ดึงเฉพาะไฟล์ที่มีนามสกุล .csv
+        last_file_path = os.path.basename(file_names[-1])
+        with open(folder_path+last_file_path, mode='r', newline='') as file:
+            reader = file.readlines()
+            for x in reader:
+                split_data = x.split(',')
+                hour = split_data[0][:2]
+                battery = (int(split_data[1]))
+                powerUsage = (int(split_data[2]))
+                if hour not in hourly_data:
+                    hourly_data[hour] = {"sum_battery":0,"sum_powerUsage":0,"count":0}
+                hourly_data[hour]['sum_battery'] += battery
+                hourly_data[hour]['sum_powerUsage'] += powerUsage
+                hourly_data[hour]['count'] += 1
+                
+        avg_data = {}
+        
+        for hour, values in hourly_data.items():
+            avg_battery = values['sum_battery'] / values['count']
+            avg_powerUsage = values['sum_powerUsage'] / values['count']
+            avg_data[hour] = {'avg_battery': avg_battery, 'avg_powerUsage': avg_powerUsage}
+        for hour, avg in avg_data.items():
+            data["time"].append(f"{hour}:00")
+            data["battery"].append(int(avg["avg_battery"]))
+            data["powerUsage"].append(int(avg["avg_powerUsage"]))
+        for f in file_names:
+            year, month, day = os.path.basename(f).replace(".csv","").split("-")
+            datetime.append(f"{day}/{month}/{year}")
+        data["datetime"] = datetime 
+        return jsonify(data)
+    else:
+        day,month,year = date.split("/")
+        file_name = f"{year}-{month}-{day}.csv"
+        folder_path = '/home/user/BinRobot/data/'
+        datetime = []
+        hourly_data = {}
+        with open(folder_path+file_name, mode='r', newline='') as file:
+            reader = file.readlines()
+            for x in reader:
+                split_data = x.split(',')
+                hour = split_data[0][:2]
+                battery = (int(split_data[1]))
+                powerUsage = (int(split_data[2]))
+                if hour not in hourly_data:
+                    hourly_data[hour] = {"sum_battery":0,"sum_powerUsage":0,"count":0}
+                hourly_data[hour]['sum_battery'] += battery
+                hourly_data[hour]['sum_powerUsage'] += powerUsage
+                hourly_data[hour]['count'] += 1
+                
+        avg_data = {}
+        
+        for hour, values in hourly_data.items():
+            avg_battery = values['sum_battery'] / values['count']
+            avg_powerUsage = values['sum_powerUsage'] / values['count']
+            avg_data[hour] = {'avg_battery': avg_battery, 'avg_powerUsage': avg_powerUsage}
+        for hour, avg in avg_data.items():
+            data["time"].append(f"{hour}:00")
+            data["battery"].append(int(avg["avg_battery"]))
+            data["powerUsage"].append(int(avg["avg_powerUsage"]))
+        return jsonify(data)
+    # return jsonify({"message": "No valid page specified"}), 404
+
+@app.route('/api/update', methods=['POST'])
+def get_update():
+    data = request.json  
+    with open("Setting.csv", mode='w',encoding='utf-8') as file:
+        file.write(data["name"]+","+str(data["gohome"])+","+str(data["stopdistance"]))
+    print("update info succesfully.")
+    return jsonify({'message': 'CSV updated successfully!'})
+    
 
 async def main_asyncio():
     await main()
@@ -463,6 +584,9 @@ if __name__ == "__main__":
     automode_thread.daemon = True
     Motor_thread = threading.Thread(target=get_gyro)
     Motor_thread.daemon = True
+    Log_thread = threading.Thread(target=writelog)
+    Log_thread.daemon = True
+    Log_thread.start()
     camera_thread.start()
     automode_thread.start()
     Motor_thread.start()
@@ -470,4 +594,4 @@ if __name__ == "__main__":
     asyncio_thread = threading.Thread(target=asyncio.run, args=(main_asyncio(),))
     asyncio_thread.start()
     
-    app.run(host='0.0.0.0', port=8000, threaded=True)
+    app.run(host='0.0.0.0', port=5000, threaded=True)

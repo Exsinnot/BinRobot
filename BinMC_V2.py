@@ -75,10 +75,6 @@ ina219 = INA219(i2c_bus,0x41)
 ina219.bus_adc_resolution = ADCResolution.ADCRES_12BIT_32S
 ina219.shunt_adc_resolution = ADCResolution.ADCRES_12BIT_32S
 ina219.bus_voltage_range = BusVoltageRange.RANGE_16V
-mp_pose = mp.solutions.pose
-pose = mp_pose.Pose()
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
 sensor1 = DistanceSensor(echo=11, trigger=9,max_distance=8) #IN
 sensor2 = DistanceSensor(echo=24, trigger=23,max_distance=8) #F
 sensor3 = DistanceSensor(echo=14, trigger=15,max_distance=8) #R
@@ -109,6 +105,16 @@ camera_y = 120
 kit.servo[0].angle = 120 #X
 kit.servo[4].angle = 0 #Y
 modear = True
+
+distanceFix = 0
+gohome = 0
+keyword = ""
+with open("/home/user/BinRobot/data/Setting.json", mode='r', encoding='utf-8') as file:
+    jsondata = json.load(file)
+    distanceFix = int(jsondata['stopdistance'])
+    gohome = int(jsondata['gohome'])
+    keyword = jsondata['name']
+
 # model = YOLO("yolov8n.pt")
 bus_voltage = ina219.bus_voltage  
 battery = int((bus_voltage - 10.5) / 0.015)
@@ -124,7 +130,7 @@ coms = {
     "Goto":None,
     "Last": None,
     "Point":None,
-    "Mode":4,
+    "Mode": 5,
     "SPDL": 0.8,
     "SPDR": 0.8,
     "Break" : True
@@ -272,7 +278,6 @@ async def main():
         print("Server >>> Websocket shutdown.")
 
 
-# Sensor ระยะทาง
 
 def get_bounding_box(hand_landmarks, frame_width, frame_height):
     min_x = min([landmark.x for landmark in hand_landmarks.landmark]) * frame_width
@@ -290,7 +295,6 @@ def automode():
         ) as hands:
         while True:
             if frame is None or coms["Mode"] != 0:
-                Stop()
                 # print("Error: No frame available for detection.")
                 time.sleep(1)
                 continue
@@ -359,8 +363,155 @@ def automode():
             else:
                 W(35)
 
-            
 
+def follow():
+    global frame, yaw, kit, coms, mp_hands,camera_y,distanceFix,sensor2,sensor3,sensor4,frameweb
+    mp_pose = mp.solutions.pose
+    pose = mp_pose.Pose()
+    time_person = time.time()
+    lastcom = ""
+    while True:
+        try:
+            if frame is None or coms["Mode"] != 2:
+                time.sleep(1)
+                continue
+            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = pose.process(frame_rgb)
+            if results.pose_landmarks:
+                landmarks = results.pose_landmarks.landmark
+
+                left_hand_y = landmarks[mp_pose.PoseLandmark.LEFT_WRIST].y
+                right_hand_y = landmarks[mp_pose.PoseLandmark.RIGHT_WRIST].y
+                head = landmarks[mp_pose.PoseLandmark.NOSE].y
+                head_y = landmarks[mp_pose.PoseLandmark.NOSE].y * 720
+                head_x = landmarks[mp_pose.PoseLandmark.NOSE].x * 1280
+                if left_hand_y < head or right_hand_y < head:
+                    time_person = time.time()
+                    if head_y < 300:
+                        camera_y += 3
+                        kit.servo[0].angle = int(camera_y)
+                    min_x = min([lm.x for lm in landmarks])
+                    max_x = max([lm.x for lm in landmarks])
+                    min_y = min([lm.y for lm in landmarks])
+                    max_y = max([lm.y for lm in landmarks])
+
+                    frame_height = 720
+                    frame_width = 1280
+                    bbox_width = (max_x - min_x) * frame_width
+                    bbox_height = (max_y - min_y) * frame_height
+                    bbox_area = bbox_width * bbox_height
+                    frame_area = frame_width * frame_height
+                    person_area_percentage = (bbox_area / frame_area) * 100
+                    if person_area_percentage > 50:
+                        if sensor2.distance * 100  < 80:
+                            yaw = 0
+                            time.sleep(0.1)
+                            distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+                            while distance1 > distanceFix + 10:
+                                if yaw < -10:
+                                    D(20)
+                                elif yaw > 10:
+                                    A(20)
+                                else:
+                                    W(20)
+                                time.sleep(0.1)
+                                distance1 = 120 if vl53.range/10 >= 120 else vl53.range/10
+                            Stop()  
+                            lastcom = ""
+                            print("person off")
+                            camera_y = 120
+                            kit.servo[0].angle = int(camera_y)
+                            openbin("on")
+                            time.sleep(10)
+                            openbin("off")
+                            Stop()
+                            time_person = time.time()
+                    if head_x > 540 and head_x < 740:
+                        yaw = 0
+                        W(30)
+                    elif head_x < 540:
+                        A(30)
+                        time.sleep(0.1)
+                        Stop()
+                    elif head_x > 740:
+                        D(30)
+                        time.sleep(0.1)
+                        Stop()
+            if sensor2.distance * 100  < 65 or sensor3.distance * 100 < 20 or sensor4.distance * 100 < 20:
+                if sensor2.distance * 100  < 65:
+                    Stop()
+                    S(30)
+                    time.sleep(1.2)
+                    Stop()
+                    W(30)
+                    time.sleep(0.3)
+                    Stop()
+                    if sensor3.distance * 100  > 100:
+                        D(30)
+                        time.sleep(0.8)
+                    elif sensor4.distance * 100  > 100:
+                        A(30)
+                        time.sleep(0.8)
+                    elif sensor3.distance * 100  < sensor4.distance * 100 :
+                        A(30)
+                        time.sleep(0.8)
+                    elif sensor3.distance * 100  < sensor4.distance * 100 :
+                        D(30)
+                        time.sleep(0.8)
+                    else:
+                        D(30)
+                        time.sleep(1)
+                    Stop()
+                    W(30)
+                    time.sleep(1.5)
+                    Stop()
+                    lastcom == ""
+                else:
+                    Stop()
+                    S(30)
+                    time.sleep(0.4)
+                    Stop()
+                    if sensor3.distance * 100  > 100:
+                        D(30)
+                        time.sleep(0.8)
+                    elif sensor4.distance * 100  > 100:
+                        A(30)
+                        time.sleep(0.8)
+                    elif sensor3.distance * 100  < sensor4.distance * 100 :
+                        A(30)
+                        time.sleep(0.8)
+                    elif sensor3.distance * 100  < sensor4.distance * 100 :
+                        D(30)
+                        time.sleep(0.8)
+                    else:
+                        D(30)
+                        time.sleep(1)
+                    Stop()
+                    W(30)
+                    time.sleep(2.5)
+                    Stop() 
+                    lastcom == ""
+            if time.time()-time_person > 5:
+                if yaw > 360 or yaw < -360:
+                    W(30)
+                    yaw = 0
+                    time_person = time.time()
+                if lastcom == "D":
+                    D(30)
+                elif lastcom == "A":
+                    A(30)
+                elif yaw <= 0:
+                    D(30)
+                    lastcom = "D"
+                elif yaw > 0:
+                    A(30)
+                    lastcom = "A"
+                time.sleep(0.5)
+                Stop()
+                time.sleep(1)     
+            # print('ddd')      
+        except:
+            print("Error")
 def openbin(com):
     if com == "off":
         for i in range(90,0,-2):
@@ -370,6 +521,10 @@ def openbin(com):
         for i in range(0,90,2):
             kit.servo[4].angle = i
             time.sleep(0.005)
+
+def get_sorted_dates(dates):
+    sorted_dates = sorted(dates, key=lambda date: datetime.strptime(date, '%d/%m/%Y'))
+    return sorted_dates
 
                 
 
@@ -456,7 +611,7 @@ def get_data():
     data = {}
     page = request.args.get('page')
     print(page)
-    Status = ['Auto','Manual',"Follow","Stay","Change"]
+    Status = ['Auto','Manual',"Follow","Stay","Change","Stock"]
     if page == "Dashboard":
         data["Batterylevel"] = int(battery)
         data["Batterydestroy"] = 0 #ยังไม่ได้เขียน
@@ -492,7 +647,7 @@ def get_date():
             reader = file.readlines()
             for x in reader:
                 split_data = x.split(',')
-                hour = split_data[0][:2]
+                hour = split_data[0].split(" ")[1].split(":")[0]
                 battery = (int(split_data[1]))
                 powerUsage = (int(split_data[2]))
                 if hour not in hourly_data:
@@ -514,7 +669,12 @@ def get_date():
         for f in file_names:
             year, month, day = os.path.basename(f).replace(".csv","").split("-")
             datetime.append(f"{day}/{month}/{year}")
-        data["datetime"] = datetime 
+
+        sorted_dates = get_sorted_dates(datetime)
+        print(sorted_dates)
+        data["datetime"] = sorted_dates 
+
+        print(data)
         return jsonify(data)
     else:
         day,month,year = date.split("/")
@@ -526,7 +686,7 @@ def get_date():
             reader = file.readlines()
             for x in reader:
                 split_data = x.split(',')
-                hour = split_data[0][:2]
+                hour = split_data[0].split(" ")[1].split(":")[0]
                 battery = (int(split_data[1]))
                 powerUsage = (int(split_data[2]))
                 if hour not in hourly_data:
@@ -545,16 +705,21 @@ def get_date():
             data["time"].append(f"{hour}:00")
             data["battery"].append(int(avg["avg_battery"]))
             data["powerUsage"].append(int(avg["avg_powerUsage"]))
+        print(data)
         return jsonify(data)
     # return jsonify({"message": "No valid page specified"}), 404
 
 @app.route('/api/update', methods=['POST'])
 def get_update():
+    global distanceFix,gohome,keyword
     data = request.json  
-    with open("Setting.csv", mode='w',encoding='utf-8') as file:
-        file.write(data["name"]+","+str(data["gohome"])+","+str(data["stopdistance"]))
+    distanceFix = int(data['stopdistance'])
+    gohome = int(data['gohome'])
+    keyword = data['keyword']
+    with open('/home/user/BinRobot/data/Setting.json', 'w') as file:
+        json.dump(data, file, indent=4)
     print("update info succesfully.")
-    return jsonify({'message': 'CSV updated successfully!'})
+    return jsonify({'message': 'updated successfully!'})
     
 
 async def main_asyncio():
@@ -582,6 +747,8 @@ if __name__ == "__main__":
     camera_thread.daemon = True
     automode_thread = threading.Thread(target=automode)
     automode_thread.daemon = True
+    follow_thread = threading.Thread(target=follow)
+    follow_thread.daemon = True
     Motor_thread = threading.Thread(target=get_gyro)
     Motor_thread.daemon = True
     Log_thread = threading.Thread(target=writelog)
@@ -589,6 +756,7 @@ if __name__ == "__main__":
     Log_thread.start()
     camera_thread.start()
     automode_thread.start()
+    follow_thread.start()
     Motor_thread.start()
     
     asyncio_thread = threading.Thread(target=asyncio.run, args=(main_asyncio(),))

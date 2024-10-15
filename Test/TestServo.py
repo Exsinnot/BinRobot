@@ -8,7 +8,7 @@ camera_x = 0
 camera_y = 0
 temp = 0
 kit.servo[0].angle = 90
-kit.servo[4].angle = 0
+kit.servo[4].angle = 90
 while True:
     com = input()
     if com == "off":

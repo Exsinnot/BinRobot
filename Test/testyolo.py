@@ -1,32 +1,19 @@
 import cv2
-from ultralytics import YOLO
 
-# Load YOLOv8 model (use 'yolov8n.pt' for a small, pre-trained model or your own trained model)
-model = YOLO('/home/user/BinRobot/Test/yolov8n.pt')  # or your model path
+def list_available_cameras(max_cameras=10):
+    available_cameras = []
+    
+    for i in range(max_cameras):
+        cap = cv2.VideoCapture(i)
+        if cap.isOpened():
+            available_cameras.append(i)
+            cap.release()  # Release the camera if it opened successfully
+    
+    return available_cameras
 
-# Open a video capture (webcam in this case)
-cap = cv2.VideoCapture(0)
-
-while True:
-    # Read frame from webcam
-    ret, frame = cap.read()
-    if not ret:
-        print("Failed to capture frame")
-        break
-
-    # Perform inference
-    results = model(frame)
-
-    # Annotate frame with detection results
-    # annotated_frame = results[0].plot()  # Automatically plots detection boxes on the frame
-
-    # Display the output frame
-    #cv2.imshow("YOLOv8 Detection", annotated_frame)
-
-    # Exit on 'q' key press
-    # if cv2.waitKey(1) & 0xFF == ord('q'):
-    #     break
-
-# Release the capture and destroy windows
-cap.release()
-cv2.destroyAllWindows()
+if __name__ == "__main__":
+    cameras = list_available_cameras()
+    if cameras:
+        print("Available camera indices:", cameras)
+    else:
+        print("No cameras found.")

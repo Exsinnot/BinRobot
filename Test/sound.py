@@ -33,7 +33,7 @@ def detect_speech_real_time_continuous():
     recognizer.energy_threshold = 500
     recognizer.dynamic_energy_threshold = True
 
-    with sr.Microphone(device_index=1) as source:
+    with sr.Microphone() as source:
         print("กรุณาพูดคำที่ต้องการตรวจจับ...")
 
         while True:
